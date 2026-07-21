@@ -1,0 +1,16 @@
+{
+  "name": "vitalini-ai-designer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply vitalini-designer-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply vitalini-designer-db --remote",
+    "test": "node --test tests/worker.test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.36.0"
+  }
+}

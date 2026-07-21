@@ -1,0 +1,9 @@
+node_modules/
+.pnpm-store/
+.wrangler/
+.dev.vars
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
