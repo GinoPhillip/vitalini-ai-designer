@@ -15,7 +15,7 @@
     {
       "binding": "DB",
       "database_name": "vitalini-designer-db",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "7d63d89b-f129-4e89-bd45-9d00f1c6bd46",
       "migrations_dir": "migrations"
     }
   ],
