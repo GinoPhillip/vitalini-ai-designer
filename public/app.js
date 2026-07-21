@@ -76,6 +76,7 @@ function getDesignerId() {
 
 function initialize() {
   elements.type.innerHTML = Object.keys(CATALOG).map((name) => `<option value="${name}">${name}</option>`).join("");
+  renderSelectPicker(elements.type);
   populateModels();
 
   elements.type.addEventListener("change", populateModels);
@@ -94,9 +95,13 @@ function initialize() {
   });
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".color-picker")) closeColorPickers();
+    if (!event.target.closest(".select-picker")) closeSelectPickers();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeColorPickers();
+    if (event.key === "Escape") {
+      closeColorPickers();
+      closeSelectPickers();
+    }
   });
   updatePromptState();
 }
@@ -104,6 +109,7 @@ function initialize() {
 function populateModels() {
   const models = CATALOG[elements.type.value] || [];
   elements.model.innerHTML = models.map((model) => `<option value="${model.id}">${model.name}</option>`).join("");
+  renderSelectPicker(elements.model);
   if (models[0]) switchModel(models[0].id);
 }
 
@@ -202,6 +208,7 @@ function renderMaterialControls() {
       event.stopPropagation();
       const shouldOpen = menu.hidden;
       closeColorPickers();
+      closeSelectPickers();
       if (shouldOpen) {
         menu.hidden = false;
         picker.classList.add("is-open");
@@ -251,6 +258,61 @@ function closeColorPickers() {
   });
 }
 
+function renderSelectPicker(select) {
+  const picker = document.querySelector(`.select-picker[data-select="${select.id}"]`);
+  if (!picker) return;
+  const trigger = picker.querySelector(".select-picker__trigger");
+  const value = picker.querySelector(".select-picker__value");
+  const menu = picker.querySelector(".select-picker__menu");
+  const options = [...select.options];
+  const selected = options.find((option) => option.value === select.value) || options[0];
+
+  value.textContent = selected?.textContent || "Select";
+  trigger.disabled = select.disabled || options.length === 0;
+  trigger.setAttribute("aria-expanded", "false");
+  picker.classList.remove("is-open");
+  menu.hidden = true;
+  menu.innerHTML = options.map((option) => `
+    <button class="select-picker__option" type="button" role="option" aria-selected="${option.value === selected?.value}" data-value="${option.value}">
+      <span>${option.textContent}</span><i aria-hidden="true">✓</i>
+    </button>
+  `).join("");
+
+  trigger.onclick = (event) => {
+    event.stopPropagation();
+    const shouldOpen = menu.hidden;
+    closeSelectPickers();
+    closeColorPickers();
+    if (shouldOpen) {
+      menu.hidden = false;
+      picker.classList.add("is-open");
+      trigger.setAttribute("aria-expanded", "true");
+    }
+  };
+
+  menu.querySelectorAll(".select-picker__option").forEach((option) => {
+    option.addEventListener("click", (event) => {
+      event.stopPropagation();
+      select.value = option.dataset.value;
+      value.textContent = option.querySelector("span").textContent;
+      menu.querySelectorAll(".select-picker__option").forEach((item) => {
+        item.setAttribute("aria-selected", String(item === option));
+      });
+      closeSelectPickers();
+      select.dispatchEvent(new Event("change"));
+      trigger.focus();
+    });
+  });
+}
+
+function closeSelectPickers() {
+  document.querySelectorAll(".select-picker.is-open").forEach((picker) => {
+    picker.classList.remove("is-open");
+    picker.querySelector(".select-picker__trigger").setAttribute("aria-expanded", "false");
+    picker.querySelector(".select-picker__menu").hidden = true;
+  });
+}
+
 function applyColor(materialName, hex) {
   const material = findMaterial(materialName);
   if (!state.api || !material) return;
@@ -296,9 +358,7 @@ async function loadHistory() {
     if (!response.ok) throw new Error("History is unavailable.");
     const payload = await response.json();
     state.history = payload.designs || [];
-    state.historyIndex = state.history.length - 1;
-    if (state.historyIndex >= 0) await applyDesign(state.history[state.historyIndex]);
-    if (state.history.length) setStatus("Latest saved design restored.");
+    state.historyIndex = -1;
   } catch {
     state.history = [];
     state.historyIndex = -1;
@@ -381,6 +441,10 @@ function setGenerating(value) {
   elements.generate.disabled = value || !state.api || !elements.prompt.value.trim();
   elements.type.disabled = value;
   elements.model.disabled = value;
+  [elements.type, elements.model].forEach((select) => {
+    const trigger = document.querySelector(`.select-picker[data-select="${select.id}"] .select-picker__trigger`);
+    if (trigger) trigger.disabled = value || select.options.length === 0;
+  });
 }
 
 function setStatus(message, isError = false) {
