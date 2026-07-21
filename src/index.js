@@ -76,7 +76,7 @@ async function generateDesign(request, env) {
   }
 
   if (env.IMAGE_RATE_LIMITER) {
-    const { success } = await env.IMAGE_RATE_LIMITER.limit({ key: `${userId}:generate` });
+    const { success } = await env.IMAGE_RATE_LIMITER.limit({ key: getRateLimitKey(request, userId) });
     if (!success) return json({ error: "Generation limit reached. Please wait a minute and try again." }, 429);
   }
 
@@ -193,6 +193,11 @@ export function isOriginAllowed(origin, requestOrigin, configuredOrigins = "") {
 export function base64ToBytes(value) {
   const binary = atob(value);
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+export function getRateLimitKey(request, userId) {
+  const clientIp = request.headers.get("cf-connecting-ip");
+  return `${clientIp || userId}:generate`;
 }
 
 function json(body, status = 200) {

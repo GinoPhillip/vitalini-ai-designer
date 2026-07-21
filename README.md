@@ -82,7 +82,7 @@ Afterward, attach the contractor's custom domain in Cloudflare Workers & Pages â
 
 ## Production notes
 
-- Native Cloudflare rate limiting allows five generations per designer ID per minute. Change the `namespace_id` if `1001` is already used by another limiter in the same Cloudflare account.
+- Native Cloudflare rate limiting allows five generations per visitor IP per minute, with the private designer ID used as a local-development fallback. Change the `namespace_id` if `1001` is already used by another limiter in the same Cloudflare account.
 - D1 stores only metadata and prompts; R2 stores PNG texture files privately.
 - Generated image routes verify the browser's private designer ID before returning a file.
 - The browser keeps that random ID in `localStorage`. For authenticated customer accounts, replace it with a signed server session or Cloudflare Access identity.
