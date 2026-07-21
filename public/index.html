@@ -18,6 +18,16 @@
           title="Interactive 3D jacket"
           allow="autoplay; fullscreen"
         ></iframe>
+        <div class="design-switcher" aria-label="Saved design navigation">
+          <div class="design-switcher__count">
+            <span>Your designs</span>
+            <strong id="historyPosition">0 / 0</strong>
+          </div>
+          <div class="design-switcher__nav">
+            <button id="previousButton" type="button" aria-label="Previous design" disabled>←</button>
+            <button id="nextButton" type="button" aria-label="Next design" disabled>→</button>
+          </div>
+        </div>
       </section>
 
       <aside class="studio" aria-label="Design controls">
@@ -31,8 +41,28 @@
               <div><h1>Choose your jacket</h1></div>
             </div>
             <div class="field-grid">
-              <label>Collection<select id="typeSelect" aria-label="Collection"></select></label>
-              <label>Model<select id="modelSelect" aria-label="Model"></select></label>
+              <div class="field-control">
+                <span class="field-control__label" id="collectionLabel">Collection</span>
+                <div class="select-picker" data-select="typeSelect">
+                  <button class="select-picker__trigger" type="button" aria-labelledby="collectionLabel typeSelectValue" aria-expanded="false" aria-controls="typeSelectMenu">
+                    <span class="select-picker__value" id="typeSelectValue">Jackets</span>
+                    <span class="select-picker__chevron" aria-hidden="true">⌄</span>
+                  </button>
+                  <div class="select-picker__menu" id="typeSelectMenu" role="listbox" aria-labelledby="collectionLabel" hidden></div>
+                </div>
+                <select id="typeSelect" aria-hidden="true" hidden></select>
+              </div>
+              <div class="field-control">
+                <span class="field-control__label" id="modelLabel">Model</span>
+                <div class="select-picker" data-select="modelSelect">
+                  <button class="select-picker__trigger" type="button" aria-labelledby="modelLabel modelSelectValue" aria-expanded="false" aria-controls="modelSelectMenu">
+                    <span class="select-picker__value" id="modelSelectValue">VP9655</span>
+                    <span class="select-picker__chevron" aria-hidden="true">⌄</span>
+                  </button>
+                  <div class="select-picker__menu" id="modelSelectMenu" role="listbox" aria-labelledby="modelLabel" hidden></div>
+                </div>
+                <select id="modelSelect" aria-hidden="true" hidden></select>
+              </div>
             </div>
           </section>
 
@@ -62,14 +92,7 @@
             <div id="materialControls" class="material-controls"></div>
           </section>
 
-          <section class="control-section history-section">
-            <div class="history-heading">
-              <div><span class="section-kicker">Your designs</span><strong id="historyPosition">0 / 0</strong></div>
-              <div class="history-nav">
-                <button id="previousButton" type="button" aria-label="Previous design" disabled>←</button>
-                <button id="nextButton" type="button" aria-label="Next design" disabled>→</button>
-              </div>
-            </div>
+          <section class="control-section export-section">
             <button class="download-button" id="downloadButton" type="button" disabled>Download current texture</button>
           </section>
         </div>
