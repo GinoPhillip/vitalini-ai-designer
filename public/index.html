@@ -23,13 +23,12 @@
       <aside class="studio" aria-label="Design controls">
         <header class="studio__header">
           <img src="./assets/vitalini-logo.png" alt="Vitalini" />
-          <p>Custom design studio</p>
         </header>
 
         <div class="studio__content">
           <section class="control-section">
             <div class="section-heading">
-              <div><h1>Choose your jacket</h1><p>Start with the silhouette you want to customize.</p></div>
+              <div><h1>Choose your jacket</h1></div>
             </div>
             <div class="field-grid">
               <label>Collection<select id="typeSelect" aria-label="Collection"></select></label>
@@ -54,7 +53,6 @@
             <button class="generate-button" id="generateButton" type="button" disabled>
               <span>Generate design</span><b aria-hidden="true">↗</b>
             </button>
-            <div class="generation-status" id="generationStatus" role="status" aria-live="polite"></div>
           </section>
 
           <section class="control-section" id="materialsSection">
@@ -77,6 +75,7 @@
         </div>
 
         <footer>Designed with Vitalini AI</footer>
+        <div class="generation-status" id="generationStatus" role="status" aria-live="polite"></div>
       </aside>
     </main>
 

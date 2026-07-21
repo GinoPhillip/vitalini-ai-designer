@@ -58,7 +58,8 @@ const state = {
   historyIndex: -1,
   currentTexture: null,
   generating: false,
-  bootSequence: 0
+  bootSequence: 0,
+  statusTimer: null
 };
 
 const designerId = getDesignerId();
@@ -90,6 +91,12 @@ function initialize() {
       updatePromptState();
       elements.prompt.focus();
     });
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".color-picker")) closeColorPickers();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeColorPickers();
   });
   updatePromptState();
 }
@@ -171,33 +178,76 @@ function bootViewer(model) {
 function renderMaterialControls() {
   elements.materialControls.innerHTML = state.model.materials.map((item, index) => `
     <div class="material-row">
-      <label for="material-${index}">${item.label}</label>
-      <div class="material-picker" style="--swatch:#ffffff">
-        <select id="material-${index}" data-material="${item.material}">
-          ${COLORS.map(([name, value]) => `<option value="${value}">${name}</option>`).join("")}
-        </select>
+      <span class="material-label" id="material-label-${index}">${item.label}</span>
+      <div class="color-picker" data-material="${item.material}" data-label="${item.label}" data-color="#ffffff">
+        <button class="color-picker__trigger" id="material-${index}" type="button" aria-label="${item.label} color, Snow" aria-expanded="false" aria-controls="material-menu-${index}">
+          <span class="color-picker__swatch" style="--swatch:#ffffff" aria-hidden="true"></span>
+          <span class="color-picker__value">Snow</span>
+          <span class="color-picker__chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div class="color-picker__menu" id="material-menu-${index}" role="listbox" aria-labelledby="material-label-${index}" hidden>
+          <span class="color-picker__menu-title">Choose a color</span>
+          <div class="color-picker__grid">
+            ${COLORS.map(([name, value]) => `<button class="color-option" type="button" role="option" aria-label="${name}" aria-selected="${value === "#ffffff"}" data-color="${value}" style="--swatch:${value}" title="${name}"></button>`).join("")}
+          </div>
+        </div>
       </div>
     </div>
   `).join("");
 
-  elements.materialControls.querySelectorAll("select").forEach((select) => {
-    select.addEventListener("change", () => {
-      select.parentElement.style.setProperty("--swatch", select.value);
-      applyColor(select.dataset.material, select.value);
+  elements.materialControls.querySelectorAll(".color-picker").forEach((picker) => {
+    const trigger = picker.querySelector(".color-picker__trigger");
+    const menu = picker.querySelector(".color-picker__menu");
+    trigger.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const shouldOpen = menu.hidden;
+      closeColorPickers();
+      if (shouldOpen) {
+        menu.hidden = false;
+        picker.classList.add("is-open");
+        trigger.setAttribute("aria-expanded", "true");
+      }
+    });
+    picker.querySelectorAll(".color-option").forEach((option) => {
+      option.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setPickerColor(picker, option.dataset.color);
+        applyColor(picker.dataset.material, option.dataset.color);
+        closeColorPickers();
+        trigger.focus();
+      });
     });
   });
 }
 
 function syncMaterialColors() {
-  elements.materialControls.querySelectorAll("select").forEach((select) => {
-    const material = findMaterial(select.dataset.material);
+  elements.materialControls.querySelectorAll(".color-picker").forEach((picker) => {
+    const material = findMaterial(picker.dataset.material);
     const channel = material && getColorChannel(material);
     const color = channel?.color;
     if (!Array.isArray(color)) return;
     const hex = rgbToHex(color);
     const closest = COLORS.reduce((best, entry) => colorDistance(hex, entry[1]) < colorDistance(hex, best[1]) ? entry : best, COLORS[0]);
-    select.value = closest[1];
-    select.parentElement.style.setProperty("--swatch", closest[1]);
+    setPickerColor(picker, closest[1]);
+  });
+}
+
+function setPickerColor(picker, hex) {
+  const entry = COLORS.find(([, value]) => value === hex) || COLORS[0];
+  picker.dataset.color = entry[1];
+  picker.querySelector(".color-picker__swatch").style.setProperty("--swatch", entry[1]);
+  picker.querySelector(".color-picker__value").textContent = entry[0];
+  picker.querySelector(".color-picker__trigger").setAttribute("aria-label", `${picker.dataset.label} color, ${entry[0]}`);
+  picker.querySelectorAll(".color-option").forEach((option) => {
+    option.setAttribute("aria-selected", String(option.dataset.color === entry[1]));
+  });
+}
+
+function closeColorPickers() {
+  elements.materialControls.querySelectorAll(".color-picker.is-open").forEach((picker) => {
+    picker.classList.remove("is-open");
+    picker.querySelector(".color-picker__trigger").setAttribute("aria-expanded", "false");
+    picker.querySelector(".color-picker__menu").hidden = true;
   });
 }
 
@@ -241,7 +291,6 @@ async function generateDesign() {
 }
 
 async function loadHistory() {
-  setStatus("Loading your saved designs…");
   try {
     const response = await apiFetch(`/api/designs?model_id=${encodeURIComponent(state.model.id)}`);
     if (!response.ok) throw new Error("History is unavailable.");
@@ -249,11 +298,10 @@ async function loadHistory() {
     state.history = payload.designs || [];
     state.historyIndex = state.history.length - 1;
     if (state.historyIndex >= 0) await applyDesign(state.history[state.historyIndex]);
-    setStatus(state.history.length ? "Latest saved design restored." : "Ready for a new design.");
+    if (state.history.length) setStatus("Latest saved design restored.");
   } catch {
     state.history = [];
     state.historyIndex = -1;
-    setStatus("3D preview is ready. Saved history will appear after the backend is configured.");
   }
   updateHistoryUI();
 }
@@ -336,8 +384,13 @@ function setGenerating(value) {
 }
 
 function setStatus(message, isError = false) {
+  clearTimeout(state.statusTimer);
   elements.status.textContent = message;
   elements.status.classList.toggle("is-error", isError);
+  elements.status.classList.toggle("is-visible", Boolean(message));
+  if (message && !isError) {
+    state.statusTimer = setTimeout(() => elements.status.classList.remove("is-visible"), 3200);
+  }
 }
 
 function updatePromptState() {
