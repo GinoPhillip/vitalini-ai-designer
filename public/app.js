@@ -42,7 +42,7 @@ const elements = {
   prompt: document.querySelector("#prompt"),
   promptCount: document.querySelector("#promptCount"),
   generate: document.querySelector("#generateButton"),
-  quality: [...document.querySelectorAll('input[name="generationQuality"]')],
+  quality: [...document.querySelectorAll('input[name="generationPreset"]')],
   status: document.querySelector("#generationStatus"),
   materialControls: document.querySelector("#materialControls"),
   historyPosition: document.querySelector("#historyPosition"),
@@ -351,7 +351,7 @@ function resetDesignMaterial(materialName) {
 async function generateDesign() {
   const prompt = elements.prompt.value.trim();
   if (!prompt || !state.api || state.generating) return;
-  const quality = elements.quality.find((option) => option.checked)?.value || "medium";
+  const renderPreset = elements.quality.find((option) => option.checked)?.value || "medium";
 
   setGenerating(true);
   setStatus("Creating a production-ready UV texture. This can take up to two minutes.");
@@ -359,7 +359,7 @@ async function generateDesign() {
     const response = await apiFetch("/api/generate", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt, modelId: state.model.id, quality })
+      body: JSON.stringify({ prompt, modelId: state.model.id, renderPreset })
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Generation failed.");

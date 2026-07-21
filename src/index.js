@@ -69,10 +69,10 @@ async function generateDesign(request, env) {
 
   const prompt = String(payload.prompt || "").trim();
   const modelId = String(payload.modelId || "").trim();
-  const quality = normalizeImageQuality(payload.quality);
+  const renderPreset = normalizeRenderPreset(payload.renderPreset ?? payload.quality);
   const model = MODELS[modelId];
   if (!model) return json({ error: "Unknown product model." }, 400);
-  if (!quality) return json({ error: "Choose medium or high generation quality." }, 400);
+  if (!renderPreset) return json({ error: "Choose medium, high, or max resolution generation." }, 400);
   if (prompt.length < 3 || prompt.length > 800) {
     return json({ error: "Describe the design in 3 to 800 characters." }, 400);
   }
@@ -91,8 +91,8 @@ async function generateDesign(request, env) {
   form.append("model", env.OPENAI_IMAGE_MODEL || "gpt-image-2");
   form.append("image[]", baseImage, `${modelId}-uv.png`);
   form.append("prompt", `${model.texturePrompt}\n\nDesign direction from the customer: ${prompt}`);
-  form.append("size", "1024x1024");
-  form.append("quality", quality);
+  form.append("size", renderPreset.size);
+  form.append("quality", renderPreset.quality);
   form.append("output_format", "png");
 
   const openAIResponse = await fetch("https://api.openai.com/v1/images/edits", {
@@ -202,10 +202,16 @@ export function getRateLimitKey(request, userId) {
   return `${clientIp || userId}:generate`;
 }
 
-export function normalizeImageQuality(value) {
-  if (value === undefined || value === null || value === "") return "medium";
-  const quality = String(value).trim().toLowerCase();
-  return quality === "medium" || quality === "high" ? quality : null;
+export function normalizeRenderPreset(value) {
+  const presetName = value === undefined || value === null || value === ""
+    ? "medium"
+    : String(value).trim().toLowerCase();
+  const presets = {
+    medium: { name: "medium", quality: "medium", size: "1024x1024" },
+    high: { name: "high", quality: "high", size: "1024x1024" },
+    max: { name: "max", quality: "high", size: "1536x1536" }
+  };
+  return presets[presetName] || null;
 }
 
 function json(body, status = 200) {
