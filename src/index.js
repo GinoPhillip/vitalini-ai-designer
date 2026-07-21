@@ -72,7 +72,7 @@ async function generateDesign(request, env) {
   const renderPreset = normalizeRenderPreset(payload.renderPreset ?? payload.quality);
   const model = MODELS[modelId];
   if (!model) return json({ error: "Unknown product model." }, 400);
-  if (!renderPreset) return json({ error: "Choose medium, high, or max resolution generation." }, 400);
+  if (!renderPreset) return json({ error: "Choose medium, high, max resolution, or ultra generation." }, 400);
   if (prompt.length < 3 || prompt.length > 800) {
     return json({ error: "Describe the design in 3 to 800 characters." }, 400);
   }
@@ -209,7 +209,8 @@ export function normalizeRenderPreset(value) {
   const presets = {
     medium: { name: "medium", quality: "medium", size: "1024x1024" },
     high: { name: "high", quality: "high", size: "1024x1024" },
-    max: { name: "max", quality: "high", size: "1536x1536" }
+    max: { name: "max", quality: "high", size: "1536x1536" },
+    ultra: { name: "ultra", quality: "high", size: "2000x2000" }
   };
   return presets[presetName] || null;
 }
