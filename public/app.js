@@ -37,7 +37,6 @@ const COLORS = [
 
 const elements = {
   iframe: document.querySelector("#viewer"),
-  viewerState: document.querySelector("#viewerState"),
   type: document.querySelector("#typeSelect"),
   model: document.querySelector("#modelSelect"),
   prompt: document.querySelector("#prompt"),
@@ -117,11 +116,9 @@ function switchModel(modelId) {
 
 function bootViewer(model) {
   const sequence = ++state.bootSequence;
-  setViewerStatus("Loading model", "loading");
   elements.generate.disabled = true;
 
   if (!window.Sketchfab) {
-    setViewerStatus("Viewer unavailable", "error");
     setStatus("The 3D viewer library could not be loaded.", true);
     return;
   }
@@ -139,6 +136,11 @@ function bootViewer(model) {
     ui_settings: 0,
     ui_inspector: 0,
     ui_annotations: 0,
+    ui_animations: 0,
+    ui_ar: 0,
+    ui_vr: 0,
+    ui_fullscreen: 0,
+    ui_stop: 0,
     ui_watermark: 0,
     ui_watermark_link: 0,
     success(api) {
@@ -149,11 +151,10 @@ function bootViewer(model) {
         if (sequence !== state.bootSequence) return;
         api.getMaterialList((error, materials) => {
           if (error) {
-            setViewerStatus("Material error", "error");
+            setStatus("The jacket materials could not be loaded.", true);
             return;
           }
           state.materials = new Map(materials.map((material) => [material.name, material]));
-          setViewerStatus(`${model.name} ready`, "ready");
           elements.generate.disabled = !elements.prompt.value.trim();
           syncMaterialColors();
           loadHistory();
@@ -162,7 +163,6 @@ function bootViewer(model) {
     },
     error() {
       if (sequence !== state.bootSequence) return;
-      setViewerStatus("Viewer failed", "error");
       setStatus("The 3D model could not be initialized.", true);
     }
   });
@@ -329,7 +329,7 @@ function apiFetch(path, options = {}) {
 function setGenerating(value) {
   state.generating = value;
   elements.generate.classList.toggle("is-loading", value);
-  elements.generate.querySelector("span").textContent = value ? "Generating texture…" : "Generate texture";
+  elements.generate.querySelector("span").textContent = value ? "Generating design…" : "Generate design";
   elements.generate.disabled = value || !state.api || !elements.prompt.value.trim();
   elements.type.disabled = value;
   elements.model.disabled = value;
@@ -338,12 +338,6 @@ function setGenerating(value) {
 function setStatus(message, isError = false) {
   elements.status.textContent = message;
   elements.status.classList.toggle("is-error", isError);
-}
-
-function setViewerStatus(message, kind) {
-  elements.viewerState.lastChild.textContent = ` ${message}`;
-  elements.viewerState.classList.toggle("is-ready", kind === "ready");
-  elements.viewerState.classList.toggle("is-error", kind === "error");
 }
 
 function updatePromptState() {

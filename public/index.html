@@ -3,89 +3,80 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b1014" />
+    <meta name="theme-color" content="#f7f6f2" />
     <meta name="description" content="Design a one-of-one Vitalini jacket with AI and preview it live in 3D." />
-    <title>Vitalini AI Designer</title>
+    <title>Vitalini Custom Designer</title>
     <link rel="preconnect" href="https://static.sketchfab.com" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="app-shell">
       <section class="stage" aria-label="Interactive 3D jacket preview">
-        <div class="stage__ambient"></div>
+        <div class="stage__ambient" aria-hidden="true"></div>
         <iframe
           id="viewer"
           title="Interactive 3D jacket"
-          allow="autoplay; fullscreen; xr-spatial-tracking"
-          allowfullscreen
+          allow="autoplay; fullscreen"
         ></iframe>
-        <div class="stage__topbar">
-          <span class="eyebrow">AI atelier / 3D preview</span>
-          <span class="viewer-state" id="viewerState"><i></i> Loading model</span>
-        </div>
-        <div class="stage__help">
-          <span>Drag to rotate</span><span>Scroll to zoom</span>
-        </div>
       </section>
 
       <aside class="studio" aria-label="Design controls">
         <header class="studio__header">
           <img src="./assets/vitalini-logo.png" alt="Vitalini" />
-          <p>Configure. Imagine. Wear.</p>
+          <p>Custom design studio</p>
         </header>
 
-        <section class="control-section">
-          <div class="section-heading">
-            <span>01</span>
-            <div><h1>Choose your canvas</h1><p>Select a jacket to begin.</p></div>
-          </div>
-          <div class="field-grid">
-            <label>Collection<select id="typeSelect" aria-label="Collection"></select></label>
-            <label>Model<select id="modelSelect" aria-label="Model"></select></label>
-          </div>
-        </section>
-
-        <section class="control-section control-section--prompt">
-          <div class="section-heading">
-            <span>02</span>
-            <div><h2>Direct the design</h2><p>Describe color, mood, pattern, and finish.</p></div>
-          </div>
-          <label class="prompt-field">
-            <span class="sr-only">Design prompt</span>
-            <textarea id="prompt" maxlength="800" placeholder="A sharp alpine camouflage in glacier blue and ink, with restrained tonal contour lines…"></textarea>
-            <span id="promptCount">0 / 800</span>
-          </label>
-          <div class="prompt-presets" aria-label="Prompt ideas">
-            <button type="button" data-prompt="Minimal alpine geometry in ice blue, bone white, and deep navy">Alpine minimal</button>
-            <button type="button" data-prompt="Energetic abstract racing stripes in orange, scarlet, and black">Race energy</button>
-            <button type="button" data-prompt="Quiet tonal topographic lines in charcoal and graphite">Tonal contour</button>
-          </div>
-          <button class="generate-button" id="generateButton" type="button" disabled>
-            <span>Generate texture</span><b aria-hidden="true">↗</b>
-          </button>
-          <div class="generation-status" id="generationStatus" role="status" aria-live="polite"></div>
-        </section>
-
-        <section class="control-section" id="materialsSection">
-          <div class="section-heading">
-            <span>03</span>
-            <div><h2>Finish the details</h2><p>Override individual trim materials.</p></div>
-          </div>
-          <div id="materialControls" class="material-controls"></div>
-        </section>
-
-        <section class="control-section history-section">
-          <div class="history-heading">
-            <div><span class="eyebrow">Design history</span><strong id="historyPosition">0 / 0</strong></div>
-            <div class="history-nav">
-              <button id="previousButton" type="button" aria-label="Previous design" disabled>←</button>
-              <button id="nextButton" type="button" aria-label="Next design" disabled>→</button>
+        <div class="studio__content">
+          <section class="control-section">
+            <div class="section-heading">
+              <div><h1>Choose your jacket</h1><p>Start with the silhouette you want to customize.</p></div>
             </div>
-          </div>
-          <button class="download-button" id="downloadButton" type="button" disabled>Download current texture</button>
-        </section>
+            <div class="field-grid">
+              <label>Collection<select id="typeSelect" aria-label="Collection"></select></label>
+              <label>Model<select id="modelSelect" aria-label="Model"></select></label>
+            </div>
+          </section>
 
-        <footer>Powered by GPT Image 2 · Live Sketchfab material preview</footer>
+          <section class="control-section control-section--prompt">
+            <div class="section-heading">
+              <div><h2>Describe your design</h2><p>Try a color story, pattern, mood, or material finish.</p></div>
+            </div>
+            <label class="prompt-field">
+              <span class="sr-only">Design prompt</span>
+              <textarea id="prompt" maxlength="800" placeholder="A sharp alpine camouflage in glacier blue and ink, with restrained tonal contour lines…"></textarea>
+              <span id="promptCount">0 / 800</span>
+            </label>
+            <div class="prompt-presets" aria-label="Prompt ideas">
+              <button type="button" data-prompt="Minimal alpine geometry in ice blue, bone white, and deep navy">Alpine minimal</button>
+              <button type="button" data-prompt="Energetic abstract racing stripes in orange, scarlet, and black">Race energy</button>
+              <button type="button" data-prompt="Quiet tonal topographic lines in charcoal and graphite">Tonal contour</button>
+            </div>
+            <button class="generate-button" id="generateButton" type="button" disabled>
+              <span>Generate design</span><b aria-hidden="true">↗</b>
+            </button>
+            <div class="generation-status" id="generationStatus" role="status" aria-live="polite"></div>
+          </section>
+
+          <section class="control-section" id="materialsSection">
+            <div class="section-heading section-heading--compact">
+              <div><h2>Customize the details</h2><p>Fine-tune the trim colors independently.</p></div>
+            </div>
+            <div id="materialControls" class="material-controls"></div>
+          </section>
+
+          <section class="control-section history-section">
+            <div class="history-heading">
+              <div><span class="section-kicker">Your designs</span><strong id="historyPosition">0 / 0</strong></div>
+              <div class="history-nav">
+                <button id="previousButton" type="button" aria-label="Previous design" disabled>←</button>
+                <button id="nextButton" type="button" aria-label="Next design" disabled>→</button>
+              </div>
+            </div>
+            <button class="download-button" id="downloadButton" type="button" disabled>Download current texture</button>
+          </section>
+        </div>
+
+        <footer>Designed with Vitalini AI</footer>
       </aside>
     </main>
 
