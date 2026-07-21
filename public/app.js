@@ -162,12 +162,18 @@ function bootViewer(model) {
       api.start();
       api.addEventListener("viewerready", () => {
         if (sequence !== state.bootSequence) return;
-        api.getMaterialList((error, materials) => {
+        api.getMaterialList(async (error, materials) => {
           if (error) {
             setStatus("The jacket materials could not be loaded.", true);
             return;
           }
           state.materials = new Map(materials.map((material) => [material.name, material]));
+          try {
+            await resetDesignMaterial(model.designMaterial);
+          } catch (resetError) {
+            console.warn("The default design texture could not be cleared", resetError);
+          }
+          if (sequence !== state.bootSequence) return;
           elements.generate.disabled = !elements.prompt.value.trim();
           syncMaterialColors();
           loadHistory();
@@ -324,6 +330,21 @@ function applyColor(materialName, hex) {
   delete channel.texture;
   material.channels = { ...material.channels, [channelName]: channel };
   state.api.setMaterial(material, (error) => error && console.warn("Material color update failed", error));
+}
+
+function resetDesignMaterial(materialName) {
+  const material = findMaterial(materialName);
+  if (!state.api || !material) return Promise.resolve();
+  const channelName = getColorChannelName(material);
+  const channel = { ...(material.channels[channelName] || {}) };
+  channel.enable = true;
+  channel.factor = typeof channel.factor === "number" ? channel.factor : 1;
+  channel.color = [1, 1, 1];
+  delete channel.texture;
+  material.channels = { ...material.channels, [channelName]: channel };
+  return new Promise((resolve, reject) => {
+    state.api.setMaterial(material, (error) => error ? reject(error) : resolve());
+  });
 }
 
 async function generateDesign() {
