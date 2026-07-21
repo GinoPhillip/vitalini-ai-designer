@@ -7,7 +7,7 @@
     <meta name="description" content="Design a one-of-one Vitalini jacket with AI and preview it live in 3D." />
     <title>Vitalini Custom Designer</title>
     <link rel="preconnect" href="https://static.sketchfab.com" />
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260721-3" />
   </head>
   <body>
     <main class="app-shell">
@@ -83,6 +83,17 @@
             <button class="generate-button" id="generateButton" type="button" disabled>
               <span>Generate design</span><b aria-hidden="true">↗</b>
             </button>
+            <fieldset class="quality-switch" id="qualitySwitch">
+              <legend class="sr-only">Generation quality</legend>
+              <label class="quality-option">
+                <input type="radio" name="generationQuality" value="medium" checked />
+                <span><b>Medium</b><small>from 5.3¢</small></span>
+              </label>
+              <label class="quality-option">
+                <input type="radio" name="generationQuality" value="high" />
+                <span><b>High</b><small>from 21.1¢</small></span>
+              </label>
+            </fieldset>
           </section>
 
           <section class="control-section" id="materialsSection">
@@ -104,6 +115,6 @@
 
     <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
     <script src="./config.js"></script>
-    <script type="module" src="./app.js?v=20260721-2"></script>
+    <script type="module" src="./app.js?v=20260721-3"></script>
   </body>
 </html>

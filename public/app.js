@@ -42,6 +42,7 @@ const elements = {
   prompt: document.querySelector("#prompt"),
   promptCount: document.querySelector("#promptCount"),
   generate: document.querySelector("#generateButton"),
+  quality: [...document.querySelectorAll('input[name="generationQuality"]')],
   status: document.querySelector("#generationStatus"),
   materialControls: document.querySelector("#materialControls"),
   historyPosition: document.querySelector("#historyPosition"),
@@ -350,6 +351,7 @@ function resetDesignMaterial(materialName) {
 async function generateDesign() {
   const prompt = elements.prompt.value.trim();
   if (!prompt || !state.api || state.generating) return;
+  const quality = elements.quality.find((option) => option.checked)?.value || "medium";
 
   setGenerating(true);
   setStatus("Creating a production-ready UV texture. This can take up to two minutes.");
@@ -357,7 +359,7 @@ async function generateDesign() {
     const response = await apiFetch("/api/generate", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt, modelId: state.model.id })
+      body: JSON.stringify({ prompt, modelId: state.model.id, quality })
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Generation failed.");
@@ -462,6 +464,7 @@ function setGenerating(value) {
   elements.generate.disabled = value || !state.api || !elements.prompt.value.trim();
   elements.type.disabled = value;
   elements.model.disabled = value;
+  elements.quality.forEach((option) => { option.disabled = value; });
   [elements.type, elements.model].forEach((select) => {
     const trigger = document.querySelector(`.select-picker[data-select="${select.id}"] .select-picker__trigger`);
     if (trigger) trigger.disabled = value || select.options.length === 0;

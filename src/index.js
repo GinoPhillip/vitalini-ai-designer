@@ -69,8 +69,10 @@ async function generateDesign(request, env) {
 
   const prompt = String(payload.prompt || "").trim();
   const modelId = String(payload.modelId || "").trim();
+  const quality = normalizeImageQuality(payload.quality);
   const model = MODELS[modelId];
   if (!model) return json({ error: "Unknown product model." }, 400);
+  if (!quality) return json({ error: "Choose medium or high generation quality." }, 400);
   if (prompt.length < 3 || prompt.length > 800) {
     return json({ error: "Describe the design in 3 to 800 characters." }, 400);
   }
@@ -90,7 +92,7 @@ async function generateDesign(request, env) {
   form.append("image[]", baseImage, `${modelId}-uv.png`);
   form.append("prompt", `${model.texturePrompt}\n\nDesign direction from the customer: ${prompt}`);
   form.append("size", "1024x1024");
-  form.append("quality", env.IMAGE_QUALITY || "medium");
+  form.append("quality", quality);
   form.append("output_format", "png");
 
   const openAIResponse = await fetch("https://api.openai.com/v1/images/edits", {
@@ -198,6 +200,12 @@ export function base64ToBytes(value) {
 export function getRateLimitKey(request, userId) {
   const clientIp = request.headers.get("cf-connecting-ip");
   return `${clientIp || userId}:generate`;
+}
+
+export function normalizeImageQuality(value) {
+  if (value === undefined || value === null || value === "") return "medium";
+  const quality = String(value).trim().toLowerCase();
+  return quality === "medium" || quality === "high" ? quality : null;
 }
 
 function json(body, status = 200) {

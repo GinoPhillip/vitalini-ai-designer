@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { base64ToBytes, getRateLimitKey, isOriginAllowed } from "../src/index.js";
+import { base64ToBytes, getRateLimitKey, isOriginAllowed, normalizeImageQuality } from "../src/index.js";
 
 test("same-origin and configured origins are accepted", () => {
   assert.equal(isOriginAllowed("https://studio.example.com", "https://studio.example.com", ""), true);
@@ -18,4 +18,12 @@ test("generation rate limiting uses the Cloudflare client address", () => {
   });
   assert.equal(getRateLimitKey(request, "designer-123456789"), "203.0.113.7:generate");
   assert.equal(getRateLimitKey(new Request("https://studio.example.com"), "designer-123456789"), "designer-123456789:generate");
+});
+
+test("generation quality is limited to supported paid options", () => {
+  assert.equal(normalizeImageQuality(undefined), "medium");
+  assert.equal(normalizeImageQuality("medium"), "medium");
+  assert.equal(normalizeImageQuality("HIGH"), "high");
+  assert.equal(normalizeImageQuality("low"), null);
+  assert.equal(normalizeImageQuality("auto"), null);
 });
