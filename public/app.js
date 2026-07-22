@@ -351,7 +351,7 @@ function resetDesignMaterial(materialName) {
 async function generateDesign() {
   const prompt = elements.prompt.value.trim();
   if (!prompt || !state.api || state.generating) return;
-  const renderPreset = elements.quality.find((option) => option.checked)?.value || "medium";
+  const renderPreset = elements.quality.find((option) => option.checked)?.value || "medium-1536";
 
   setGenerating(true);
   setStatus("Creating a production-ready UV texture. This can take up to two minutes.");

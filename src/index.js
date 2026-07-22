@@ -1,13 +1,15 @@
+const CREATIVE_TEXTURE_PROMPT =
+  "You are a senior fashion textile designer and art director specializing in premium technical outerwear. Treat the customer's direction as the hero concept and elevate it into an original, fashion-forward, production-ready surface graphic. Build a clean but imaginative composition with confident visual hierarchy, a sophisticated color story, crisp shapes, purposeful rhythm, controlled contrast, balanced negative space, refined layering, and intentional focal accents. When the brief is sparse, enrich it with coherent supporting motifs, subtle tonal depth, precise linework, elegant micro-patterns, material-aware texture, and seam-conscious transitions. Keep every decision cohesive, premium, modern, dynamic, and wearable. Clean should feel considered rather than empty. Avoid clutter, arbitrary decoration, muddy color mixing, sloppy edges, noisy artifacts, generic stock imagery, chaotic repetition, accidental text, fake logos, illegible lettering, and pasted-on objects. Unless the customer explicitly requests them, do not introduce words, logos, numbers, badges, or emblems.\n\n" +
+  "The input is a UV-layout texture atlas for a technical ski jacket. Preserve every UV island silhouette, seam boundary, panel mask, orientation, position, canvas proportion, and unused background area exactly. Apply artwork only inside the existing garment panels. Do not move, resize, add, remove, warp, or merge UV islands. Keep corresponding shared edges visually continuous, make motif scale intentional across panels, and respect all existing hardware and trim zones. Return only the flat square texture atlas, aligned exactly to the source: no jacket mockup, person, mannequin, labels, shadows, perspective, scenery, or extra objects.";
+
 const MODELS = Object.freeze({
   VP9655: {
     baseImage: "/assets/models/VP9655-base.png",
-    texturePrompt:
-      "This input is a UV-layout texture atlas for a technical ski jacket. Preserve every UV island, seam boundary, panel position, canvas proportion, and unused background area exactly. Apply the requested graphic design inside the existing garment panels only. Keep every panel self-contained and continuous at shared edges. Return only the flat square texture atlas: no jacket mockup, person, labels, shadows, perspective, or extra objects."
+    texturePrompt: CREATIVE_TEXTURE_PROMPT
   },
   VP9109: {
     baseImage: "/assets/models/VP9109-base.png",
-    texturePrompt:
-      "This input is a UV-layout texture atlas for a technical ski jacket. Preserve every UV island, seam boundary, panel position, canvas proportion, and unused background area exactly. Apply the requested graphic design inside the existing garment panels only. Keep every panel self-contained and continuous at shared edges. Return only the flat square texture atlas: no jacket mockup, person, labels, shadows, perspective, or extra objects."
+    texturePrompt: CREATIVE_TEXTURE_PROMPT
   }
 });
 
@@ -72,7 +74,7 @@ async function generateDesign(request, env) {
   const renderPreset = normalizeRenderPreset(payload.renderPreset ?? payload.quality);
   const model = MODELS[modelId];
   if (!model) return json({ error: "Unknown product model." }, 400);
-  if (!renderPreset) return json({ error: "Choose medium, high, max resolution, or ultra generation." }, 400);
+  if (!renderPreset) return json({ error: "Choose a supported generation preset." }, 400);
   if (prompt.length < 3 || prompt.length > 800) {
     return json({ error: "Describe the design in 3 to 800 characters." }, 400);
   }
@@ -204,13 +206,13 @@ export function getRateLimitKey(request, userId) {
 
 export function normalizeRenderPreset(value) {
   const presetName = value === undefined || value === null || value === ""
-    ? "medium"
+    ? "medium-1536"
     : String(value).trim().toLowerCase();
   const presets = {
-    medium: { name: "medium", quality: "medium", size: "1024x1024" },
-    high: { name: "high", quality: "high", size: "1024x1024" },
-    max: { name: "max", quality: "high", size: "1536x1536" },
-    ultra: { name: "ultra", quality: "high", size: "2000x2000" }
+    "medium-1536": { name: "medium-1536", quality: "medium", size: "1536x1536" },
+    "medium-2000": { name: "medium-2000", quality: "medium", size: "2000x2000" },
+    "high-1536": { name: "high-1536", quality: "high", size: "1536x1536" },
+    "high-2000": { name: "high-2000", quality: "high", size: "2000x2000" }
   };
   return presets[presetName] || null;
 }

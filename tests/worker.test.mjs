@@ -21,10 +21,11 @@ test("generation rate limiting uses the Cloudflare client address", () => {
 });
 
 test("generation presets map to server-controlled quality and size", () => {
-  assert.deepEqual(normalizeRenderPreset(undefined), { name: "medium", quality: "medium", size: "1024x1024" });
-  assert.deepEqual(normalizeRenderPreset("HIGH"), { name: "high", quality: "high", size: "1024x1024" });
-  assert.deepEqual(normalizeRenderPreset("max"), { name: "max", quality: "high", size: "1536x1536" });
-  assert.deepEqual(normalizeRenderPreset("ultra"), { name: "ultra", quality: "high", size: "2000x2000" });
+  assert.deepEqual(normalizeRenderPreset(undefined), { name: "medium-1536", quality: "medium", size: "1536x1536" });
+  assert.deepEqual(normalizeRenderPreset("MEDIUM-2000"), { name: "medium-2000", quality: "medium", size: "2000x2000" });
+  assert.deepEqual(normalizeRenderPreset("high-1536"), { name: "high-1536", quality: "high", size: "1536x1536" });
+  assert.deepEqual(normalizeRenderPreset("high-2000"), { name: "high-2000", quality: "high", size: "2000x2000" });
   assert.equal(normalizeRenderPreset("low"), null);
+  assert.equal(normalizeRenderPreset("medium"), null);
   assert.equal(normalizeRenderPreset("auto"), null);
 });
