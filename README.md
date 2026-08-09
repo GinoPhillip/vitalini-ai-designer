@@ -78,9 +78,7 @@ npx wrangler secret put ADMIN_PASSWORD
 
 If a separate frontend origin will call this Worker, add it to the comma-separated `ALLOWED_ORIGINS` value; same-origin deployment needs no value.
 
-### Direct request email
-
-Every design request is stored in D1/R2 even when email delivery is unavailable. Without an email binding, the client is given a prefilled email to `REQUEST_EMAIL` as a fallback. To send automatically, onboard a sender domain in Cloudflare Email Service, add an Email Service binding named `EMAIL`, and set `EMAIL_FROM` to an address on that onboarded domain. The submitted preview is attached when it is 5 MB or smaller.
+Design requests stay entirely inside the portal. The submitted composite preview, client message, original generated texture, and full client profile are available only through the authenticated administrator dashboard.
 
 Deploy:
 
@@ -95,6 +93,6 @@ Afterward, attach the contractor's custom domain in Cloudflare Workers & Pages â
 - Native Cloudflare rate limiting allows five generations per account/IP per minute, and D1 atomically enforces 20 generations per account per UTC day. Change the `namespace_id` if `1001` is already used by another limiter in the same Cloudflare account.
 - D1 stores account/workflow metadata and prompts; R2 stores generated textures, uploaded logos, and request previews privately.
 - Passwords use salted PBKDF2-SHA-256 hashes. Invite codes and bearer sessions are stored only as hashes.
-- Private file routes require either the owning client session or the administrator session. The client download button intentionally remains enabled for now.
-- Administrators can generate single- or multi-use account codes, inspect every creation for one client, suspend access, mark designs Draft/Executive, and move requests through review/finalized states.
+- Private file routes require either the owning client session or the administrator session; client texture download is disabled.
+- Administrators can generate single- or multi-use account codes, open focused design requests with the exact preview/message and full client profile, suspend or delete accounts, mark designs Draft/Executive, and move requests through review/finalized states.
 - Run `npm test` before deployment.

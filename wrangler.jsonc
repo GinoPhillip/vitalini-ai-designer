@@ -37,8 +37,6 @@
   ],
   "vars": {
     "OPENAI_IMAGE_MODEL": "gpt-image-2",
-    "ALLOWED_ORIGINS": "https://ginophillip.github.io",
-    "REQUEST_EMAIL": "marco@pietrovitalini.it",
-    "PUBLIC_APP_URL": "https://ginophillip.github.io/vitalini-ai-designer"
+    "ALLOWED_ORIGINS": "https://ginophillip.github.io"
   }
 }

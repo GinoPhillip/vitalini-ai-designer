@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f2ed" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Vitalini Client Portal Admin</title>
-    <link rel="stylesheet" href="./admin.css?v=20260808-1" />
+    <link rel="stylesheet" href="./admin.css?v=20260809-2" />
   </head>
   <body>
     <section class="admin-login" id="adminLogin">
@@ -73,8 +73,30 @@
             <section class="admin-card"><div id="requestList" class="data-list"></div></section>
           </div>
 
+          <div class="admin-view" id="requestDetailView" hidden>
+            <div class="view-heading"><div><button class="back-button" id="backToRequests" type="button">← Requests</button><span>Focused request</span><h1 id="requestDetailTitle">Design request</h1><p id="requestDetailMeta"></p></div></div>
+            <section class="admin-card request-focus">
+              <div class="request-focus__message"><div><span>Client message</span><p id="requestDetailMessage"></p></div><label><span>Status</span><select id="requestDetailStatus" aria-label="Focused request status"></select></label></div>
+              <div class="request-focus__media">
+                <figure><img id="requestDetailPreview" alt="Submitted design request preview"><figcaption>Submitted request</figcaption></figure>
+                <figure><img id="requestDetailDesign" alt="Original generated design"><figcaption>Original generated texture</figcaption></figure>
+              </div>
+              <div class="request-focus__design"><strong id="requestDetailModel"></strong><p id="requestDetailPrompt"></p></div>
+            </section>
+            <div class="profile-divider"><span>Complete client profile</span><h2 id="requestProfileName">Client</h2><p id="requestProfileEmail"></p></div>
+            <div class="metric-grid metric-grid--small">
+              <article><strong id="requestProfileUsage">0 / 20</strong><span>Generations today</span></article>
+              <article><strong id="requestProfileDesignCount">0</strong><span>Creations</span></article>
+              <article><strong id="requestProfileLogoCount">0</strong><span>Logos</span></article>
+              <article><strong id="requestProfileRequestCount">0</strong><span>Requests</span></article>
+            </div>
+            <section class="admin-card"><div class="card-heading"><h2>All client creations</h2></div><div id="requestProfileDesigns" class="creation-grid"></div></section>
+            <section class="admin-card"><div class="card-heading"><h2>Uploaded logos</h2></div><div id="requestProfileLogos" class="logo-grid"></div></section>
+            <section class="admin-card"><div class="card-heading"><h2>Request history</h2></div><div id="requestProfileRequests" class="data-list"></div></section>
+          </div>
+
           <div class="admin-view" id="userDetailView" hidden>
-            <div class="view-heading"><div><button class="back-button" id="backToUsers" type="button">← Clients</button><h1 id="detailUsername">Client</h1><p id="detailEmail"></p></div><button class="account-status-button" id="detailAccountStatus" type="button">Suspend access</button></div>
+            <div class="view-heading"><div><button class="back-button" id="backToUsers" type="button">← Clients</button><h1 id="detailUsername">Client</h1><p id="detailEmail"></p></div><div class="account-actions"><button class="account-status-button" id="detailAccountStatus" type="button">Suspend access</button><button class="delete-account-button" id="deleteAccountButton" type="button">Delete account</button></div></div>
             <div class="metric-grid metric-grid--small">
               <article><strong id="detailUsage">0 / 20</strong><span>Generations today</span></article>
               <article><strong id="detailDesignCount">0</strong><span>Creations</span></article>
@@ -92,6 +114,6 @@
     </main>
 
     <script src="./config.js"></script>
-    <script type="module" src="./admin.js?v=20260808-1"></script>
+    <script type="module" src="./admin.js?v=20260809-2"></script>
   </body>
 </html>

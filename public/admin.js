@@ -4,6 +4,7 @@ let adminToken = sessionStorage.getItem(ADMIN_SESSION_KEY) || "";
 let dashboard = { users: [], invites: [], requests: [] };
 let statusTimer = null;
 let currentUser = null;
+let currentRequest = null;
 
 const elements = {
   login: document.querySelector("#adminLogin"), shell: document.querySelector("#adminShell"), loginForm: document.querySelector("#adminLoginForm"),
@@ -21,8 +22,9 @@ async function bootstrap() {
       elements.login.hidden = true;
       elements.shell.hidden = false;
       await loadDashboard();
-      const requestedUser = new URLSearchParams(location.search).get("user");
-      if (requestedUser) await openUser(requestedUser);
+      const params = new URLSearchParams(location.search);
+      if (params.get("request")) await openRequest(params.get("request"));
+      else if (params.get("user")) await openUser(params.get("user"));
       return;
     }
     clearAdminSession();
@@ -38,7 +40,10 @@ function wireEvents() {
   elements.inviteForm.addEventListener("submit", createInvite);
   elements.copyCode.addEventListener("click", () => navigator.clipboard.writeText(elements.newCodeValue.textContent));
   document.querySelector("#backToUsers").addEventListener("click", () => showView("users"));
+  document.querySelector("#backToRequests").addEventListener("click", () => showView("requests"));
   document.querySelector("#detailAccountStatus").addEventListener("click", toggleUserStatus);
+  document.querySelector("#deleteAccountButton").addEventListener("click", deleteCurrentUser);
+  document.querySelector("#requestDetailStatus").addEventListener("change", (event) => currentRequest && updateRequestStatus(currentRequest.id, event.target.value));
 }
 
 async function login(event) {
@@ -90,6 +95,7 @@ function renderDashboard() {
   elements.requestList.innerHTML = dashboard.requests.length ? dashboard.requests.map(renderRequest).join("") : emptyRow("No design requests yet.");
   elements.overviewRequests.innerHTML = dashboard.requests.length ? dashboard.requests.slice(0,6).map(renderRequest).join("") : emptyRow("No design requests yet.");
   document.querySelectorAll("[data-user]").forEach((button) => button.addEventListener("click", () => openUser(button.dataset.user)));
+  document.querySelectorAll("[data-request]").forEach((button) => button.addEventListener("click", () => openRequest(button.dataset.request)));
   document.querySelectorAll("[data-request-status]").forEach((select) => select.addEventListener("change", () => updateRequestStatus(select.dataset.requestStatus, select.value)));
 }
 
@@ -103,7 +109,7 @@ function renderUser(item) {
 }
 
 function renderRequest(item) {
-  return `<div class="data-row"><div class="data-row__main"><strong>${escapeHtml(item.username || "Client")} · ${escapeHtml(item.model_id || "Design")}</strong><span>${escapeHtml(item.message.slice(0,100))}</span></div><span>${formatDate(item.created_at)}</span><select aria-label="Request status" data-request-status="${item.id}">${statusOptions(item.status)}</select><button data-user="${item.user_id}" type="button">View client</button></div>`;
+  return `<div class="data-row"><div class="data-row__main"><strong>${escapeHtml(item.username || "Client")} · ${escapeHtml(item.model_id || "Design")}</strong><span>${escapeHtml(item.message.slice(0,100))}</span></div><span>${formatDate(item.created_at)}</span><select aria-label="Request status" data-request-status="${item.id}">${statusOptions(item.status)}</select><button data-request="${item.id}" type="button">Open request</button></div>`;
 }
 
 async function createInvite(event) {
@@ -141,17 +147,81 @@ function renderUserDetail(payload) {
   document.querySelector("#detailDesignCount").textContent = payload.designs.length;
   document.querySelector("#detailLogoCount").textContent = payload.logos.length;
   document.querySelector("#detailRequestCount").textContent = payload.requests.length;
-  document.querySelector("#detailDesigns").innerHTML = payload.designs.length ? payload.designs.map((item) => `<article class="creation-card"><img data-auth-src="${item.imageUrl}" alt="${escapeHtml(item.modelId)} design"><div class="creation-card__body"><strong>${escapeHtml(item.modelId)} · ${formatDate(item.createdAt)}</strong><p>${escapeHtml(item.prompt)}</p><select data-design-status="${item.id}" aria-label="Design production status"><option value="draft" ${item.status === "draft" ? "selected" : ""}>Draft</option><option value="executive" ${item.status === "executive" ? "selected" : ""}>Executive</option></select></div></article>`).join("") : "<p>No creations yet.</p>";
-  document.querySelector("#detailLogos").innerHTML = payload.logos.length ? payload.logos.map((item) => `<article class="logo-card"><img data-auth-src="${item.fileUrl}" alt="${escapeHtml(item.name)}"><span>${escapeHtml(item.name)}</span></article>`).join("") : "<p>No logos uploaded.</p>";
-  document.querySelector("#detailRequests").innerHTML = payload.requests.length ? payload.requests.map((item) => `<div class="data-row"><div class="data-row__main"><strong>${formatDate(item.created_at)}</strong><span>${escapeHtml(item.message)}</span></div><span>${item.design_id.slice(0,8)}</span><select data-request-status="${item.id}">${statusOptions(item.status)}</select><a href="#" data-preview="${item.previewUrl}">Open preview</a></div>`).join("") : emptyRow("No design requests yet.");
-  document.querySelectorAll("[data-design-status]").forEach((select) => select.addEventListener("change", () => updateDesignStatus(select.dataset.designStatus, select.value)));
-  document.querySelectorAll("[data-request-status]").forEach((select) => select.addEventListener("change", () => updateRequestStatus(select.dataset.requestStatus, select.value)));
-  document.querySelectorAll("[data-preview]").forEach((link) => link.addEventListener("click", async (event) => { event.preventDefault(); const url = await authenticatedObjectUrl(link.dataset.preview); window.open(url,"_blank","noopener"); }));
-  hydrateImages();
+  document.querySelector("#detailDesigns").innerHTML = designCards(payload.designs);
+  document.querySelector("#detailLogos").innerHTML = logoCards(payload.logos);
+  document.querySelector("#detailRequests").innerHTML = requestRows(payload.requests);
+  bindProfileActions(document.querySelector("#userDetailView"));
+  hydrateImages(document.querySelector("#userDetailView"));
 }
 
-async function hydrateImages() {
-  await Promise.all([...document.querySelectorAll("img[data-auth-src]")].map(async (image) => { try { image.src = await authenticatedObjectUrl(image.dataset.authSrc); } catch { image.alt = "Private image unavailable"; } }));
+async function openRequest(requestId) {
+  try {
+    const response = await adminFetch(`/api/admin/requests/${encodeURIComponent(requestId)}`);
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Design request could not be loaded.");
+    renderRequestDetail(payload);
+    showView("requestDetail");
+    history.replaceState(null,"",`${location.pathname}?request=${encodeURIComponent(requestId)}`);
+  } catch (error) { showStatus(error.message, true); }
+}
+
+function renderRequestDetail(payload) {
+  currentRequest = payload.request;
+  const request = payload.request;
+  document.querySelector("#requestDetailTitle").textContent = `${request.username} · ${request.design.modelId}`;
+  document.querySelector("#requestDetailMeta").textContent = `${formatDate(request.createdAt)} · ${request.email}`;
+  document.querySelector("#requestDetailMessage").textContent = request.message;
+  document.querySelector("#requestDetailStatus").innerHTML = statusOptions(request.status);
+  document.querySelector("#requestDetailModel").textContent = `${request.design.modelId} · ${request.design.status}`;
+  document.querySelector("#requestDetailPrompt").textContent = request.design.prompt;
+  setPrivateImage(document.querySelector("#requestDetailPreview"), request.previewUrl);
+  setPrivateImage(document.querySelector("#requestDetailDesign"), request.design.imageUrl);
+
+  const profile = payload.profile;
+  document.querySelector("#requestProfileName").textContent = profile.user.username;
+  document.querySelector("#requestProfileEmail").textContent = profile.user.email;
+  document.querySelector("#requestProfileUsage").textContent = `${profile.usage.used} / ${profile.usage.limit}`;
+  document.querySelector("#requestProfileDesignCount").textContent = profile.designs.length;
+  document.querySelector("#requestProfileLogoCount").textContent = profile.logos.length;
+  document.querySelector("#requestProfileRequestCount").textContent = profile.requests.length;
+  document.querySelector("#requestProfileDesigns").innerHTML = designCards(profile.designs);
+  document.querySelector("#requestProfileLogos").innerHTML = logoCards(profile.logos);
+  document.querySelector("#requestProfileRequests").innerHTML = requestRows(profile.requests);
+  const view = document.querySelector("#requestDetailView");
+  bindProfileActions(view);
+  hydrateImages(view);
+}
+
+function designCards(items) {
+  return items.length ? items.map((item) => `<article class="creation-card"><img data-auth-src="${item.imageUrl}" alt="${escapeHtml(item.modelId)} design"><div class="creation-card__body"><strong>${escapeHtml(item.modelId)} · ${formatDate(item.createdAt)}</strong><p>${escapeHtml(item.prompt)}</p><select data-design-status="${item.id}" aria-label="Design production status"><option value="draft" ${item.status === "draft" ? "selected" : ""}>Draft</option><option value="executive" ${item.status === "executive" ? "selected" : ""}>Executive</option></select></div></article>`).join("") : "<p>No creations yet.</p>";
+}
+
+function logoCards(items) {
+  return items.length ? items.map((item) => `<article class="logo-card"><img data-auth-src="${item.fileUrl}" alt="${escapeHtml(item.name)}"><span>${escapeHtml(item.name)}</span></article>`).join("") : "<p>No logos uploaded.</p>";
+}
+
+function requestRows(items) {
+  return items.length ? items.map((item) => `<div class="data-row"><div class="data-row__main"><strong>${formatDate(item.created_at)}</strong><span>${escapeHtml(item.message)}</span></div><span>${item.design_id.slice(0,8)}</span><select data-request-status="${item.id}">${statusOptions(item.status)}</select><button data-request="${item.id}" type="button">Open request</button></div>`).join("") : emptyRow("No design requests yet.");
+}
+
+function bindProfileActions(container) {
+  container.querySelectorAll("[data-design-status]").forEach((select) => select.addEventListener("change", () => updateDesignStatus(select.dataset.designStatus, select.value)));
+  container.querySelectorAll("[data-request-status]").forEach((select) => select.addEventListener("change", () => updateRequestStatus(select.dataset.requestStatus, select.value)));
+  container.querySelectorAll("[data-request]").forEach((button) => button.addEventListener("click", () => openRequest(button.dataset.request)));
+}
+
+function setPrivateImage(image, path) {
+  image.removeAttribute("src");
+  image.dataset.authSrc = path;
+  delete image.dataset.hydrated;
+}
+
+async function hydrateImages(container = document) {
+  await Promise.all([...container.querySelectorAll("img[data-auth-src]:not([data-hydrated])")].map(async (image) => {
+    image.dataset.hydrated = "true";
+    try { image.src = await authenticatedObjectUrl(image.dataset.authSrc); }
+    catch { image.alt = "Private image unavailable"; }
+  }));
 }
 
 async function authenticatedObjectUrl(path) {
@@ -163,6 +233,7 @@ async function authenticatedObjectUrl(path) {
 async function updateRequestStatus(id,status) {
   const response = await adminFetch(`/api/admin/requests/${id}`, { method:"PATCH", headers:{"content-type":"application/json"}, body:JSON.stringify({ status }) });
   if (!response.ok) return showStatus("Request status could not be updated.", true);
+  if (currentRequest?.id === id) currentRequest.status = status;
   showStatus("Request status updated.");
 }
 
@@ -190,10 +261,28 @@ async function toggleUserStatus() {
   finally { button.disabled = false; }
 }
 
+async function deleteCurrentUser() {
+  if (!currentUser) return;
+  const confirmed = window.confirm(`Permanently delete ${currentUser.username}? This removes the account, designs, logos, requests, sessions, and private files.`);
+  if (!confirmed) return;
+  const button = document.querySelector("#deleteAccountButton");
+  button.disabled = true;
+  try {
+    const response = await adminFetch(`/api/admin/users/${currentUser.id}`, { method:"DELETE" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Account could not be deleted.");
+    currentUser = null;
+    await loadDashboard();
+    showView("users");
+    showStatus("Client account and private files deleted.");
+  } catch (error) { showStatus(error.message, true); }
+  finally { button.disabled = false; }
+}
+
 function showView(name) {
   elements.views.forEach((view) => { view.hidden = view.id !== `${name}View`; });
   elements.nav.forEach((button) => button.classList.toggle("is-active", button.dataset.view === name));
-  if (name !== "userDetail") history.replaceState(null,"",location.pathname);
+  if (!["userDetail", "requestDetail"].includes(name)) history.replaceState(null,"",location.pathname);
 }
 
 function adminFetch(path,options={}) { const headers=new Headers(options.headers||{}); headers.set("authorization",`Bearer ${adminToken}`); return fetch(`${API_BASE}${path}`,{...options,headers,cache:"no-store"}); }
