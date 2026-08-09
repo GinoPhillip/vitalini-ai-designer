@@ -2,19 +2,24 @@ const TEXTURE_PROMPT =
   "This input is a UV-layout texture atlas for a technical ski jacket. Preserve every UV island, seam boundary, panel position, canvas proportion, and unused background area exactly. Apply the requested graphic design inside the existing garment panels only. Keep every panel self-contained and continuous at shared edges. Return only the flat square texture atlas: no jacket mockup, person, labels, shadows, perspective, or extra objects.";
 
 const MODELS = Object.freeze({
-  VP9655: {
-    baseImage: "/assets/models/VP9655-base.png",
-    texturePrompt: TEXTURE_PROMPT
-  },
-  VP9109: {
-    baseImage: "/assets/models/VP9109-base.png",
-    texturePrompt: TEXTURE_PROMPT
-  }
+  VP9655: { baseImage: "/assets/models/VP9655-base.png", texturePrompt: TEXTURE_PROMPT },
+  VP9109: { baseImage: "/assets/models/VP9109-base.png", texturePrompt: TEXTURE_PROMPT }
 });
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
-const USER_ID_RE = /^[a-zA-Z0-9_-]{16,80}$/;
-const DESIGN_ID_RE = /^[0-9a-f-]{36}$/i;
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+const LEGACY_USER_ID_RE = /^[a-zA-Z0-9_-]{16,80}$/;
+const USERNAME_RE = /^[a-zA-Z0-9_.-]{3,32}$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PASSWORD_ITERATIONS = 210_000;
+const USER_SESSION_DAYS = 30;
+const ADMIN_SESSION_HOURS = 12;
+const DAILY_GENERATION_LIMIT = 20;
+const MAX_LOGO_BYTES = 5 * 1024 * 1024;
+const MAX_PREVIEW_BYTES = 15 * 1024 * 1024;
+const LOGO_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+const REQUEST_STATUSES = new Set(["new", "in_review", "finalized", "declined"]);
+const DESIGN_STATUSES = new Set(["draft", "executive"]);
 
 export default {
   async fetch(request, env) {
@@ -22,9 +27,8 @@ export default {
     const origin = request.headers.get("origin");
 
     if (url.pathname.startsWith("/api/") && !isOriginAllowed(origin, url.origin, env.ALLOWED_ORIGINS)) {
-      return json({ error: "Origin not allowed" }, 403);
+      return withCors(json({ error: "Origin not allowed." }, 403), origin);
     }
-
     if (request.method === "OPTIONS" && url.pathname.startsWith("/api/")) {
       return withCors(new Response(null, { status: 204 }), origin);
     }
@@ -33,14 +37,18 @@ export default {
       let response;
       if (request.method === "GET" && url.pathname === "/api/health") {
         response = json({ ok: true, imageModel: env.OPENAI_IMAGE_MODEL || "gpt-image-2" });
-      } else if (request.method === "POST" && url.pathname === "/api/generate") {
-        response = await generateDesign(request, env);
-      } else if (request.method === "GET" && url.pathname === "/api/designs") {
-        response = await listDesigns(request, env);
-      } else if (request.method === "GET" && /^\/api\/designs\/[^/]+\/image$/.test(url.pathname)) {
-        response = await getDesignImage(request, env);
+      } else if (request.method === "POST" && url.pathname === "/api/auth/register") {
+        response = await registerUser(request, env);
+      } else if (request.method === "POST" && url.pathname === "/api/auth/login") {
+        response = await loginUser(request, env);
+      } else if (request.method === "POST" && url.pathname === "/api/admin/login") {
+        response = await loginAdmin(request, env);
+      } else if (url.pathname.startsWith("/api/admin/")) {
+        const admin = await authenticateAdmin(request, env);
+        response = admin ? await routeAdmin(request, env, admin) : json({ error: "Admin authorization required." }, 401);
       } else if (url.pathname.startsWith("/api/")) {
-        response = json({ error: "Not found" }, 404);
+        const user = await authenticateUser(request, env);
+        response = user ? await routeUser(request, env, user) : json({ error: "Sign in to continue." }, 401);
       } else {
         return env.ASSETS.fetch(request);
       }
@@ -52,21 +60,183 @@ export default {
   }
 };
 
-async function generateDesign(request, env) {
-  if (!env.OPENAI_API_KEY) return json({ error: "Image generation is not configured." }, 503);
+async function routeUser(request, env, user) {
+  const url = new URL(request.url);
+  const path = url.pathname;
 
-  const contentLength = Number(request.headers.get("content-length") || 0);
-  if (contentLength > 20_000) return json({ error: "Request is too large." }, 413);
+  if (request.method === "GET" && path === "/api/auth/session") return getSessionSummary(env, user);
+  if (request.method === "POST" && path === "/api/auth/logout") return logoutUser(request, env);
+  if (request.method === "GET" && path === "/api/account") return getAccount(env, user);
+  if (request.method === "POST" && path === "/api/generate") return generateDesign(request, env, user);
+  if (request.method === "GET" && path === "/api/designs") return listDesigns(request, env, user);
+  if (request.method === "GET" && /^\/api\/designs\/[^/]+\/image$/.test(path)) return getDesignImage(request, env, user);
+  if (request.method === "GET" && path === "/api/logos") return listLogos(env, user);
+  if (request.method === "POST" && path === "/api/logos") return uploadLogo(request, env, user);
+  if (request.method === "GET" && /^\/api\/logos\/[^/]+\/file$/.test(path)) return getLogoFile(request, env, user);
+  if (request.method === "GET" && path === "/api/requests") return listRequests(env, user);
+  if (request.method === "POST" && path === "/api/requests") return createDesignRequest(request, env, user);
+  if (request.method === "GET" && /^\/api\/requests\/[^/]+\/preview$/.test(path)) return getRequestPreview(request, env, user);
+  return json({ error: "Not found." }, 404);
+}
 
-  const userId = getUserId(request);
-  if (!userId) return json({ error: "Missing or invalid designer ID." }, 400);
+async function routeAdmin(request, env) {
+  const url = new URL(request.url);
+  const path = url.pathname;
 
-  let payload;
+  if (request.method === "POST" && path === "/api/admin/logout") return logoutAdmin(request, env);
+  if (request.method === "GET" && path === "/api/admin/invites") return listInvites(env);
+  if (request.method === "POST" && path === "/api/admin/invites") return createInvite(request, env);
+  if (request.method === "GET" && path === "/api/admin/users") return listAdminUsers(env);
+  if (request.method === "GET" && /^\/api\/admin\/users\/[^/]+$/.test(path)) return getAdminUser(request, env);
+  if (request.method === "PATCH" && /^\/api\/admin\/users\/[^/]+$/.test(path)) return updateAdminUser(request, env);
+  if (request.method === "GET" && path === "/api/admin/requests") return listAdminRequests(env);
+  if (request.method === "PATCH" && /^\/api\/admin\/requests\/[^/]+$/.test(path)) return updateAdminRequest(request, env);
+  if (request.method === "PATCH" && /^\/api\/admin\/designs\/[^/]+$/.test(path)) return updateAdminDesign(request, env);
+  if (request.method === "GET" && /^\/api\/admin\/designs\/[^/]+\/image$/.test(path)) return getAdminDesignImage(request, env);
+  if (request.method === "GET" && /^\/api\/admin\/requests\/[^/]+\/preview$/.test(path)) return getAdminRequestPreview(request, env);
+  if (request.method === "GET" && /^\/api\/admin\/logos\/[^/]+\/file$/.test(path)) return getAdminLogoFile(request, env);
+  return json({ error: "Not found." }, 404);
+}
+
+async function registerUser(request, env) {
+  if (!(await allowAuthAttempt(request, env))) return json({ error: "Too many attempts. Please wait a minute." }, 429);
+  const payload = await readJson(request, 25_000);
+  if (payload instanceof Response) return payload;
+
+  const inviteCode = normalizeInviteCode(payload.inviteCode);
+  const username = String(payload.username || "").trim();
+  const email = String(payload.email || "").trim().toLowerCase();
+  const password = String(payload.password || "");
+  const legacyDesignerId = String(payload.legacyDesignerId || "");
+  if (!inviteCode) return json({ error: "Enter a valid account creation code." }, 400);
+  if (!USERNAME_RE.test(username)) return json({ error: "Username must be 3–32 letters, numbers, dots, dashes, or underscores." }, 400);
+  if (!EMAIL_RE.test(email) || email.length > 254) return json({ error: "Enter a valid email address." }, 400);
+  if (password.length < 10 || password.length > 128) return json({ error: "Password must be 10–128 characters." }, 400);
+
+  const duplicate = await env.DB.prepare("SELECT id FROM users WHERE username = ? OR email = ?").bind(username, email).first();
+  if (duplicate) return json({ error: "That username or email is already registered." }, 409);
+
+  const now = new Date().toISOString();
+  const codeHash = await sha256Hex(inviteCode);
+  const invite = await env.DB.prepare(
+    "UPDATE invite_codes SET used_count = used_count + 1, last_used_at = ? WHERE code_hash = ? AND used_count < max_uses AND expires_at > ? RETURNING id"
+  ).bind(now, codeHash, now).first();
+  if (!invite) return json({ error: "That account creation code is invalid, expired, or already used." }, 400);
+
+  const userId = crypto.randomUUID();
+  const credentials = await hashPassword(password);
   try {
-    payload = await request.json();
-  } catch {
-    return json({ error: "Expected a JSON request." }, 400);
+    await env.DB.prepare(
+      "INSERT INTO users (id, username, email, password_hash, password_salt, password_iterations, status, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, 'approved', ?, ?)"
+    ).bind(userId, username, email, credentials.hash, credentials.salt, credentials.iterations, now, now).run();
+  } catch (error) {
+    await env.DB.prepare("UPDATE invite_codes SET used_count = MAX(used_count - 1, 0) WHERE id = ?").bind(invite.id).run();
+    throw error;
   }
+
+  if (LEGACY_USER_ID_RE.test(legacyDesignerId)) {
+    await env.DB.prepare("UPDATE designs SET user_id = ? WHERE user_id = ?").bind(userId, legacyDesignerId).run();
+  }
+  const token = await createUserSession(env, userId);
+  return json({ token, user: { id: userId, username, email, status: "approved" } }, 201);
+}
+
+async function loginUser(request, env) {
+  if (!(await allowAuthAttempt(request, env))) return json({ error: "Too many attempts. Please wait a minute." }, 429);
+  const payload = await readJson(request, 20_000);
+  if (payload instanceof Response) return payload;
+  const identity = String(payload.identity || "").trim();
+  const password = String(payload.password || "");
+  if (!identity || !password) return json({ error: "Enter your username or email and password." }, 400);
+
+  const user = await env.DB.prepare(
+    "SELECT id, username, email, password_hash, password_salt, password_iterations, status FROM users WHERE username = ? OR email = ?"
+  ).bind(identity, identity.toLowerCase()).first();
+  const valid = user && await verifyPassword(password, user.password_salt, user.password_hash, user.password_iterations);
+  if (!valid) return json({ error: "Incorrect username, email, or password." }, 401);
+  if (user.status !== "approved") return json({ error: "This account is not currently approved." }, 403);
+
+  const now = new Date().toISOString();
+  await env.DB.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").bind(now, user.id).run();
+  const token = await createUserSession(env, user.id);
+  return json({ token, user: publicUser(user) });
+}
+
+async function loginAdmin(request, env) {
+  if (!env.ADMIN_PASSWORD) return json({ error: "Admin access is not configured." }, 503);
+  if (!(await allowAuthAttempt(request, env))) return json({ error: "Too many attempts. Please wait a minute." }, 429);
+  const payload = await readJson(request, 10_000);
+  if (payload instanceof Response) return payload;
+  if (!timingSafeEqualText(String(payload.password || ""), env.ADMIN_PASSWORD)) {
+    return json({ error: "Incorrect admin password." }, 401);
+  }
+  const token = randomToken(32);
+  const now = new Date();
+  const expires = new Date(now.getTime() + ADMIN_SESSION_HOURS * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare("INSERT INTO admin_sessions (token_hash, created_at, expires_at) VALUES (?, ?, ?)")
+    .bind(await sha256Hex(token), now.toISOString(), expires).run();
+  return json({ token, expiresAt: expires });
+}
+
+async function authenticateUser(request, env) {
+  const token = bearerToken(request);
+  if (!token) return null;
+  const now = new Date().toISOString();
+  const user = await env.DB.prepare(
+    "SELECT u.id, u.username, u.email, u.status, u.created_at FROM user_sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ? AND u.status = 'approved'"
+  ).bind(await sha256Hex(token), now).first();
+  return user || null;
+}
+
+async function authenticateAdmin(request, env) {
+  const token = bearerToken(request);
+  if (!token) return null;
+  return env.DB.prepare("SELECT token_hash FROM admin_sessions WHERE token_hash = ? AND expires_at > ?")
+    .bind(await sha256Hex(token), new Date().toISOString()).first();
+}
+
+async function logoutUser(request, env) {
+  const token = bearerToken(request);
+  if (token) await env.DB.prepare("DELETE FROM user_sessions WHERE token_hash = ?").bind(await sha256Hex(token)).run();
+  return json({ ok: true });
+}
+
+async function logoutAdmin(request, env) {
+  const token = bearerToken(request);
+  if (token) await env.DB.prepare("DELETE FROM admin_sessions WHERE token_hash = ?").bind(await sha256Hex(token)).run();
+  return json({ ok: true });
+}
+
+async function createUserSession(env, userId) {
+  const token = randomToken(32);
+  const now = new Date();
+  const expires = new Date(now.getTime() + USER_SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare(
+    "INSERT INTO user_sessions (token_hash, user_id, created_at, expires_at, last_seen_at) VALUES (?, ?, ?, ?, ?)"
+  ).bind(await sha256Hex(token), userId, now.toISOString(), expires, now.toISOString()).run();
+  return token;
+}
+
+async function getSessionSummary(env, user) {
+  const usage = await getDailyUsage(env, user.id);
+  return json({ user: publicUser(user), usage });
+}
+
+async function getAccount(env, user) {
+  const usage = await getDailyUsage(env, user.id);
+  const counts = await env.DB.prepare(
+    "SELECT (SELECT COUNT(*) FROM designs WHERE user_id = ?) AS designs, (SELECT COUNT(*) FROM logos WHERE user_id = ?) AS logos, (SELECT COUNT(*) FROM design_requests WHERE user_id = ?) AS requests"
+  ).bind(user.id, user.id, user.id).first();
+  const { results: requests = [] } = await env.DB.prepare(
+    "SELECT id, design_id, message, status, created_at, updated_at FROM design_requests WHERE user_id = ? ORDER BY created_at DESC LIMIT 20"
+  ).bind(user.id).all();
+  return json({ user: publicUser(user), usage, counts, requests });
+}
+
+async function generateDesign(request, env, user) {
+  if (!env.OPENAI_API_KEY) return json({ error: "Image generation is not configured." }, 503);
+  const payload = await readJson(request, 20_000);
+  if (payload instanceof Response) return payload;
 
   const prompt = String(payload.prompt || "").trim();
   const modelId = String(payload.modelId || "").trim();
@@ -74,37 +244,43 @@ async function generateDesign(request, env) {
   const model = MODELS[modelId];
   if (!model) return json({ error: "Unknown product model." }, 400);
   if (!renderPreset) return json({ error: "Choose a supported generation preset." }, 400);
-  if (prompt.length < 3 || prompt.length > 800) {
-    return json({ error: "Describe the design in 3 to 800 characters." }, 400);
-  }
+  if (prompt.length < 3 || prompt.length > 800) return json({ error: "Describe the design in 3 to 800 characters." }, 400);
 
   if (env.IMAGE_RATE_LIMITER) {
-    const { success } = await env.IMAGE_RATE_LIMITER.limit({ key: getRateLimitKey(request, userId) });
+    const { success } = await env.IMAGE_RATE_LIMITER.limit({ key: getRateLimitKey(request, user.id) });
     if (!success) return json({ error: "Generation limit reached. Please wait a minute and try again." }, 429);
   }
 
   const baseRequest = new Request(new URL(model.baseImage, request.url));
   const baseResponse = await env.ASSETS.fetch(baseRequest);
   if (!baseResponse.ok) return json({ error: "The model texture template is unavailable." }, 500);
-  const baseImage = await baseResponse.blob();
+  const reservation = await reserveDailyGeneration(env, user.id);
+  if (!reservation) return json({ error: `Daily generation limit reached (${DAILY_GENERATION_LIMIT}/day).` }, 429);
 
   const form = new FormData();
   form.append("model", env.OPENAI_IMAGE_MODEL || "gpt-image-2");
-  form.append("image[]", baseImage, `${modelId}-uv.png`);
+  form.append("image[]", await baseResponse.blob(), `${modelId}-uv.png`);
   form.append("prompt", `${model.texturePrompt}\n\nDesign direction from the customer: ${prompt}`);
   form.append("size", renderPreset.size);
   form.append("quality", renderPreset.quality);
   form.append("output_format", "png");
 
-  const openAIResponse = await fetch("https://api.openai.com/v1/images/edits", {
-    method: "POST",
-    headers: { authorization: `Bearer ${env.OPENAI_API_KEY}` },
-    body: form
-  });
+  let openAIResponse;
+  try {
+    openAIResponse = await fetch("https://api.openai.com/v1/images/edits", {
+      method: "POST",
+      headers: { authorization: `Bearer ${env.OPENAI_API_KEY}` },
+      body: form
+    });
+  } catch (error) {
+    await releaseDailyGeneration(env, user.id);
+    throw error;
+  }
 
   const requestId = openAIResponse.headers.get("x-request-id");
   const result = await openAIResponse.json().catch(() => null);
   if (!openAIResponse.ok) {
+    await releaseDailyGeneration(env, user.id);
     console.error("OpenAI image error", { status: openAIResponse.status, requestId, code: result?.error?.code });
     const message = openAIResponse.status === 429
       ? "The image service is busy or over quota. Please try again shortly."
@@ -115,60 +291,341 @@ async function generateDesign(request, env) {
   }
 
   const base64 = result?.data?.[0]?.b64_json;
-  if (!base64) return json({ error: "The image service returned no texture." }, 502);
-
+  if (!base64) {
+    await releaseDailyGeneration(env, user.id);
+    return json({ error: "The image service returned no texture." }, 502);
+  }
   const id = crypto.randomUUID();
   const createdAt = new Date().toISOString();
-  const objectKey = `designs/${userId}/${modelId}/${id}.png`;
+  const objectKey = `designs/${user.id}/${modelId}/${id}.png`;
   const bytes = base64ToBytes(base64);
-
   await env.DESIGNS.put(objectKey, bytes, {
     httpMetadata: { contentType: "image/png" },
-    customMetadata: { userId, modelId, designId: id }
+    customMetadata: { userId: user.id, modelId, designId: id }
   });
 
   try {
     await env.DB.prepare(
-      "INSERT INTO designs (id, user_id, model_id, prompt, object_key, created_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).bind(id, userId, modelId, prompt, objectKey, createdAt).run();
+      "INSERT INTO designs (id, user_id, model_id, prompt, object_key, created_at, status, render_preset, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?)"
+    ).bind(id, user.id, modelId, prompt, objectKey, createdAt, renderPreset.name, createdAt).run();
   } catch (error) {
     await env.DESIGNS.delete(objectKey);
     throw error;
   }
 
-  return json({ design: serializeDesign({ id, model_id: modelId, prompt, created_at: createdAt }) }, 201);
+  return json({
+    design: serializeDesign({ id, model_id: modelId, prompt, created_at: createdAt, status: "draft", render_preset: renderPreset.name }),
+    usage: { used: reservation.generation_count, limit: DAILY_GENERATION_LIMIT, remaining: DAILY_GENERATION_LIMIT - reservation.generation_count }
+  }, 201);
 }
 
-async function listDesigns(request, env) {
-  const userId = getUserId(request);
+async function reserveDailyGeneration(env, userId) {
+  const now = new Date().toISOString();
+  return env.DB.prepare(
+    "INSERT INTO daily_generation_usage (user_id, usage_date, generation_count, updated_at) VALUES (?, ?, 1, ?) ON CONFLICT(user_id, usage_date) DO UPDATE SET generation_count = generation_count + 1, updated_at = excluded.updated_at WHERE generation_count < ? RETURNING generation_count"
+  ).bind(userId, now.slice(0, 10), now, DAILY_GENERATION_LIMIT).first();
+}
+
+async function releaseDailyGeneration(env, userId) {
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    "UPDATE daily_generation_usage SET generation_count = MAX(generation_count - 1, 0), updated_at = ? WHERE user_id = ? AND usage_date = ?"
+  ).bind(now, userId, now.slice(0, 10)).run();
+}
+
+async function getDailyUsage(env, userId) {
+  const today = new Date().toISOString().slice(0, 10);
+  const row = await env.DB.prepare("SELECT generation_count FROM daily_generation_usage WHERE user_id = ? AND usage_date = ?")
+    .bind(userId, today).first();
+  const used = Number(row?.generation_count || 0);
+  return { used, limit: DAILY_GENERATION_LIMIT, remaining: Math.max(0, DAILY_GENERATION_LIMIT - used), date: today };
+}
+
+async function listDesigns(request, env, user) {
   const modelId = new URL(request.url).searchParams.get("model_id") || "";
-  if (!userId || !MODELS[modelId]) return json({ error: "Invalid history request." }, 400);
-
+  if (!MODELS[modelId]) return json({ error: "Invalid history request." }, 400);
   const { results = [] } = await env.DB.prepare(
-    "SELECT id, model_id, prompt, created_at FROM designs WHERE user_id = ? AND model_id = ? ORDER BY created_at ASC LIMIT 100"
-  ).bind(userId, modelId).all();
-
+    "SELECT id, model_id, prompt, created_at, status, render_preset FROM designs WHERE user_id = ? AND model_id = ? ORDER BY created_at DESC LIMIT 100"
+  ).bind(user.id, modelId).all();
   return json({ designs: results.map(serializeDesign) });
 }
 
-async function getDesignImage(request, env) {
-  const userId = getUserId(request);
-  const parts = new URL(request.url).pathname.split("/");
-  const designId = parts[3] || "";
-  if (!userId || !DESIGN_ID_RE.test(designId)) return json({ error: "Invalid image request." }, 400);
+async function getDesignImage(request, env, user) {
+  const designId = pathPart(request, 3);
+  if (!UUID_RE.test(designId)) return json({ error: "Invalid image request." }, 400);
+  const design = await env.DB.prepare("SELECT object_key FROM designs WHERE id = ? AND user_id = ?").bind(designId, user.id).first();
+  return design ? r2Response(env, design.object_key, `${designId}.png`) : json({ error: "Design not found." }, 404);
+}
 
-  const design = await env.DB.prepare(
-    "SELECT object_key FROM designs WHERE id = ? AND user_id = ?"
-  ).bind(designId, userId).first();
+async function listLogos(env, user) {
+  const { results = [] } = await env.DB.prepare(
+    "SELECT id, name, content_type, size_bytes, created_at FROM logos WHERE user_id = ? ORDER BY created_at DESC"
+  ).bind(user.id).all();
+  return json({ logos: results.map((logo) => ({ ...logo, fileUrl: `/api/logos/${logo.id}/file` })) });
+}
+
+async function uploadLogo(request, env, user) {
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > MAX_LOGO_BYTES + 100_000) return json({ error: "Logo is too large (5 MB maximum)." }, 413);
+  const form = await request.formData().catch(() => null);
+  const file = form?.get("logo");
+  if (!file || typeof file.arrayBuffer !== "function") return json({ error: "Choose a logo file." }, 400);
+  if (!LOGO_TYPES.has(file.type) || file.size < 1 || file.size > MAX_LOGO_BYTES) {
+    return json({ error: "Use a PNG, JPEG, or WebP logo up to 5 MB." }, 400);
+  }
+  const id = crypto.randomUUID();
+  const extension = file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+  const objectKey = `logos/${user.id}/${id}.${extension}`;
+  const createdAt = new Date().toISOString();
+  await env.DESIGNS.put(objectKey, await file.arrayBuffer(), {
+    httpMetadata: { contentType: file.type },
+    customMetadata: { userId: user.id, logoId: id }
+  });
+  try {
+    await env.DB.prepare(
+      "INSERT INTO logos (id, user_id, name, object_key, content_type, size_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, user.id, safeFilename(file.name || `logo.${extension}`), objectKey, file.type, file.size, createdAt).run();
+  } catch (error) {
+    await env.DESIGNS.delete(objectKey);
+    throw error;
+  }
+  return json({ logo: { id, name: safeFilename(file.name), contentType: file.type, sizeBytes: file.size, createdAt, fileUrl: `/api/logos/${id}/file` } }, 201);
+}
+
+async function getLogoFile(request, env, user) {
+  const logoId = pathPart(request, 3);
+  if (!UUID_RE.test(logoId)) return json({ error: "Invalid logo request." }, 400);
+  const logo = await env.DB.prepare("SELECT object_key, name FROM logos WHERE id = ? AND user_id = ?").bind(logoId, user.id).first();
+  return logo ? r2Response(env, logo.object_key, logo.name) : json({ error: "Logo not found." }, 404);
+}
+
+async function createDesignRequest(request, env, user) {
+  const payload = await readJson(request, 22 * 1024 * 1024);
+  if (payload instanceof Response) return payload;
+  const designId = String(payload.designId || "");
+  const logoId = String(payload.logoId || "");
+  const message = String(payload.message || "").trim();
+  const placement = payload.placement && typeof payload.placement === "object" ? payload.placement : null;
+  if (!UUID_RE.test(designId)) return json({ error: "Choose a generated design first." }, 400);
+  if (message.length < 3 || message.length > 2000) return json({ error: "Add a message between 3 and 2,000 characters." }, 400);
+  const design = await env.DB.prepare("SELECT id, model_id, prompt FROM designs WHERE id = ? AND user_id = ?").bind(designId, user.id).first();
   if (!design) return json({ error: "Design not found." }, 404);
+  if (logoId) {
+    const logo = UUID_RE.test(logoId) && await env.DB.prepare("SELECT id FROM logos WHERE id = ? AND user_id = ?").bind(logoId, user.id).first();
+    if (!logo) return json({ error: "Selected logo is unavailable." }, 400);
+  }
 
-  const object = await env.DESIGNS.get(design.object_key);
-  if (!object) return json({ error: "Design image not found." }, 404);
+  const preview = parseImageDataUrl(String(payload.previewDataUrl || ""));
+  if (!preview || preview.bytes.byteLength > MAX_PREVIEW_BYTES) return json({ error: "The request preview is missing or too large." }, 400);
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const objectKey = `requests/${user.id}/${id}.${preview.extension}`;
+  await env.DESIGNS.put(objectKey, preview.bytes, {
+    httpMetadata: { contentType: preview.contentType },
+    customMetadata: { userId: user.id, requestId: id, designId }
+  });
+  try {
+    await env.DB.prepare(
+      "INSERT INTO design_requests (id, user_id, design_id, logo_id, message, placement_json, preview_object_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)"
+    ).bind(id, user.id, designId, logoId || null, message, placement ? JSON.stringify(placement) : null, objectKey, now, now).run();
+  } catch (error) {
+    await env.DESIGNS.delete(objectKey);
+    throw error;
+  }
 
+  const emailResult = await notifyDesignRequest(request, env, user, { id, design, message, preview });
+  return json({
+    request: { id, designId, message, status: "new", createdAt: now, previewUrl: `/api/requests/${id}/preview` },
+    emailSent: emailResult.sent,
+    mailtoUrl: emailResult.mailtoUrl,
+    recipient: emailResult.recipient
+  }, 201);
+}
+
+async function listRequests(env, user) {
+  const { results = [] } = await env.DB.prepare(
+    "SELECT id, design_id, message, status, created_at, updated_at FROM design_requests WHERE user_id = ? ORDER BY created_at DESC"
+  ).bind(user.id).all();
+  return json({ requests: results.map((item) => ({ ...item, previewUrl: `/api/requests/${item.id}/preview` })) });
+}
+
+async function getRequestPreview(request, env, user) {
+  const id = pathPart(request, 3);
+  if (!UUID_RE.test(id)) return json({ error: "Invalid request preview." }, 400);
+  const row = await env.DB.prepare("SELECT preview_object_key FROM design_requests WHERE id = ? AND user_id = ?").bind(id, user.id).first();
+  return row ? r2Response(env, row.preview_object_key, `vitalini-request-${id}.jpg`) : json({ error: "Request not found." }, 404);
+}
+
+async function notifyDesignRequest(request, env, user, details) {
+  const recipient = env.REQUEST_EMAIL || "marco@pietrovitalini.it";
+  const appUrl = (env.PUBLIC_APP_URL || "https://ginophillip.github.io/vitalini-ai-designer").replace(/\/$/, "");
+  const adminUrl = `${appUrl}/admin.html?user=${encodeURIComponent(user.id)}&request=${encodeURIComponent(details.id)}`;
+  const subject = `Vitalini design request — ${user.username} — ${details.design.model_id}`;
+  const text = [
+    "A client submitted a Vitalini design request.",
+    `Client: ${user.username}`,
+    `Email: ${user.email}`,
+    `Model: ${details.design.model_id}`,
+    `Design ID: ${details.design.id}`,
+    `Request ID: ${details.id}`,
+    "",
+    `Message: ${details.message}`,
+    "",
+    `Open the client's creations: ${adminUrl}`
+  ].join("\n");
+  let sent = false;
+
+  if (env.EMAIL?.send && env.EMAIL_FROM) {
+    try {
+      const email = {
+        to: recipient,
+        from: env.EMAIL_FROM,
+        replyTo: user.email,
+        subject,
+        text,
+        html: `<h2>New Vitalini design request</h2><p><strong>Client:</strong> ${escapeHtml(user.username)} (${escapeHtml(user.email)})</p><p><strong>Model:</strong> ${escapeHtml(details.design.model_id)}</p><p><strong>Message:</strong><br>${escapeHtml(details.message).replace(/\n/g, "<br>")}</p><p><a href="${escapeHtml(adminUrl)}">Open this client's creations</a></p>`
+      };
+      if (details.preview.bytes.byteLength <= MAX_LOGO_BYTES) {
+        email.attachments = [{
+          filename: `vitalini-${details.design.model_id}-${details.id}.${details.preview.extension}`,
+          content: exactArrayBuffer(details.preview.bytes),
+          type: details.preview.contentType,
+          disposition: "attachment"
+        }];
+      }
+      await env.EMAIL.send(email);
+      sent = true;
+    } catch (error) {
+      console.error("Design request email failed", error);
+    }
+  }
+
+  const mailtoUrl = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
+  return { sent, mailtoUrl, recipient };
+}
+
+async function createInvite(request, env) {
+  const payload = await readJson(request, 10_000);
+  if (payload instanceof Response) return payload;
+  const label = String(payload.label || "").trim().slice(0, 120);
+  const validDays = Math.min(90, Math.max(1, Number(payload.validDays) || 14));
+  const maxUses = Math.min(50, Math.max(1, Number(payload.maxUses) || 1));
+  const code = makeInviteCode();
+  const id = crypto.randomUUID();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + validDays * 24 * 60 * 60 * 1000).toISOString();
+  await env.DB.prepare(
+    "INSERT INTO invite_codes (id, code_hash, label, max_uses, used_count, expires_at, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)"
+  ).bind(id, await sha256Hex(normalizeInviteCode(code)), label, maxUses, expiresAt, now.toISOString()).run();
+  return json({ invite: { id, code, label, maxUses, usedCount: 0, expiresAt, createdAt: now.toISOString() } }, 201);
+}
+
+async function listInvites(env) {
+  const { results = [] } = await env.DB.prepare(
+    "SELECT id, label, max_uses, used_count, expires_at, created_at, last_used_at FROM invite_codes ORDER BY created_at DESC LIMIT 100"
+  ).all();
+  return json({ invites: results });
+}
+
+async function listAdminUsers(env) {
+  const { results = [] } = await env.DB.prepare(
+    "SELECT u.id, u.username, u.email, u.status, u.created_at, u.last_login_at, (SELECT COUNT(*) FROM designs d WHERE d.user_id = u.id) AS design_count, (SELECT COUNT(*) FROM design_requests r WHERE r.user_id = u.id) AS request_count FROM users u ORDER BY u.created_at DESC"
+  ).all();
+  return json({ users: results });
+}
+
+async function updateAdminUser(request, env) {
+  const userId = pathPart(request, 4);
+  const payload = await readJson(request, 10_000);
+  if (payload instanceof Response) return payload;
+  const status = String(payload.status || "");
+  if (!UUID_RE.test(userId) || !["approved", "suspended"].includes(status)) return json({ error: "Invalid client status." }, 400);
+  const result = await env.DB.prepare("UPDATE users SET status = ? WHERE id = ? RETURNING id")
+    .bind(status, userId).first();
+  if (!result) return json({ error: "User not found." }, 404);
+  if (status === "suspended") await env.DB.prepare("DELETE FROM user_sessions WHERE user_id = ?").bind(userId).run();
+  return json({ id: userId, status });
+}
+
+async function getAdminUser(request, env) {
+  const userId = pathPart(request, 4);
+  if (!UUID_RE.test(userId)) return json({ error: "Invalid user." }, 400);
+  const user = await env.DB.prepare("SELECT id, username, email, status, created_at, last_login_at FROM users WHERE id = ?").bind(userId).first();
+  if (!user) return json({ error: "User not found." }, 404);
+  const [designResult, logoResult, requestResult, usage] = await Promise.all([
+    env.DB.prepare("SELECT id, model_id, prompt, status, render_preset, created_at, updated_at FROM designs WHERE user_id = ? ORDER BY created_at DESC").bind(userId).all(),
+    env.DB.prepare("SELECT id, name, content_type, size_bytes, created_at FROM logos WHERE user_id = ? ORDER BY created_at DESC").bind(userId).all(),
+    env.DB.prepare("SELECT id, design_id, message, status, created_at, updated_at FROM design_requests WHERE user_id = ? ORDER BY created_at DESC").bind(userId).all(),
+    getDailyUsage(env, userId)
+  ]);
+  return json({
+    user,
+    usage,
+    designs: (designResult.results || []).map((item) => ({ ...serializeDesign(item), imageUrl: `/api/admin/designs/${item.id}/image` })),
+    logos: (logoResult.results || []).map((item) => ({ ...item, fileUrl: `/api/admin/logos/${item.id}/file` })),
+    requests: (requestResult.results || []).map((item) => ({ ...item, previewUrl: `/api/admin/requests/${item.id}/preview` }))
+  });
+}
+
+async function listAdminRequests(env) {
+  const { results = [] } = await env.DB.prepare(
+    "SELECT r.id, r.user_id, r.design_id, r.message, r.status, r.created_at, r.updated_at, u.username, u.email, d.model_id FROM design_requests r JOIN users u ON u.id = r.user_id JOIN designs d ON d.id = r.design_id ORDER BY r.created_at DESC"
+  ).all();
+  return json({ requests: results.map((item) => ({ ...item, previewUrl: `/api/admin/requests/${item.id}/preview` })) });
+}
+
+async function updateAdminRequest(request, env) {
+  const id = pathPart(request, 4);
+  const payload = await readJson(request, 10_000);
+  if (payload instanceof Response) return payload;
+  const status = String(payload.status || "");
+  if (!UUID_RE.test(id) || !REQUEST_STATUSES.has(status)) return json({ error: "Invalid request status." }, 400);
+  const updatedAt = new Date().toISOString();
+  const result = await env.DB.prepare("UPDATE design_requests SET status = ?, updated_at = ? WHERE id = ? RETURNING id")
+    .bind(status, updatedAt, id).first();
+  return result ? json({ id, status, updatedAt }) : json({ error: "Request not found." }, 404);
+}
+
+async function updateAdminDesign(request, env) {
+  const id = pathPart(request, 4);
+  const payload = await readJson(request, 10_000);
+  if (payload instanceof Response) return payload;
+  const status = String(payload.status || "");
+  if (!UUID_RE.test(id) || !DESIGN_STATUSES.has(status)) return json({ error: "Invalid design status." }, 400);
+  const updatedAt = new Date().toISOString();
+  const result = await env.DB.prepare("UPDATE designs SET status = ?, updated_at = ? WHERE id = ? RETURNING id")
+    .bind(status, updatedAt, id).first();
+  return result ? json({ id, status, updatedAt }) : json({ error: "Design not found." }, 404);
+}
+
+async function getAdminDesignImage(request, env) {
+  const id = pathPart(request, 4);
+  if (!UUID_RE.test(id)) return json({ error: "Invalid design." }, 400);
+  const row = await env.DB.prepare("SELECT object_key FROM designs WHERE id = ?").bind(id).first();
+  return row ? r2Response(env, row.object_key, `${id}.png`) : json({ error: "Design not found." }, 404);
+}
+
+async function getAdminRequestPreview(request, env) {
+  const id = pathPart(request, 4);
+  if (!UUID_RE.test(id)) return json({ error: "Invalid request." }, 400);
+  const row = await env.DB.prepare("SELECT preview_object_key FROM design_requests WHERE id = ?").bind(id).first();
+  return row ? r2Response(env, row.preview_object_key, `vitalini-request-${id}.jpg`) : json({ error: "Request not found." }, 404);
+}
+
+async function getAdminLogoFile(request, env) {
+  const id = pathPart(request, 4);
+  if (!UUID_RE.test(id)) return json({ error: "Invalid logo." }, 400);
+  const row = await env.DB.prepare("SELECT object_key, name FROM logos WHERE id = ?").bind(id).first();
+  return row ? r2Response(env, row.object_key, row.name) : json({ error: "Logo not found." }, 404);
+}
+
+async function r2Response(env, objectKey, filename) {
+  const object = await env.DESIGNS.get(objectKey);
+  if (!object) return json({ error: "File not found." }, 404);
   const headers = new Headers({
-    "content-type": object.httpMetadata?.contentType || "image/png",
+    "content-type": object.httpMetadata?.contentType || "application/octet-stream",
     "cache-control": "private, no-store",
-    "content-disposition": `inline; filename=\"${designId}.png\"`
+    "content-disposition": `inline; filename="${safeFilename(filename)}"`
   });
   return new Response(object.body, { headers });
 }
@@ -178,14 +635,125 @@ function serializeDesign(row) {
     id: row.id,
     modelId: row.model_id,
     prompt: row.prompt,
+    status: row.status || "draft",
+    renderPreset: row.render_preset || null,
     createdAt: row.created_at,
     imageUrl: `/api/designs/${row.id}/image`
   };
 }
 
-function getUserId(request) {
-  const value = request.headers.get("x-designer-id") || "";
-  return USER_ID_RE.test(value) ? value : null;
+function publicUser(user) {
+  return { id: user.id, username: user.username, email: user.email, status: user.status, createdAt: user.created_at };
+}
+
+async function readJson(request, maxBytes) {
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > maxBytes) return json({ error: "Request is too large." }, 413);
+  try {
+    return await request.json();
+  } catch {
+    return json({ error: "Expected a JSON request." }, 400);
+  }
+}
+
+async function allowAuthAttempt(request, env) {
+  if (!env.IMAGE_RATE_LIMITER) return true;
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  const { success } = await env.IMAGE_RATE_LIMITER.limit({ key: `auth:${ip}` });
+  return success;
+}
+
+function bearerToken(request) {
+  const header = request.headers.get("authorization") || "";
+  return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+}
+
+async function hashPassword(password, salt = randomToken(16), iterations = PASSWORD_ITERATIONS) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt: base64UrlToBytes(salt), iterations, hash: "SHA-256" },
+    key,
+    256
+  );
+  return { hash: bytesToBase64Url(new Uint8Array(bits)), salt, iterations };
+}
+
+async function verifyPassword(password, salt, expectedHash, iterations) {
+  const actual = await hashPassword(password, salt, Number(iterations));
+  return timingSafeEqualBytes(base64UrlToBytes(actual.hash), base64UrlToBytes(expectedHash));
+}
+
+function timingSafeEqualText(a, b) {
+  return timingSafeEqualBytes(new TextEncoder().encode(a), new TextEncoder().encode(b));
+}
+
+function timingSafeEqualBytes(a, b) {
+  const length = Math.max(a.length, b.length);
+  let difference = a.length ^ b.length;
+  for (let index = 0; index < length; index += 1) difference |= (a[index] || 0) ^ (b[index] || 0);
+  return difference === 0;
+}
+
+async function sha256Hex(value) {
+  const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function randomToken(byteLength) {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return bytesToBase64Url(bytes);
+}
+
+function bytesToBase64Url(bytes) {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlToBytes(value) {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  return base64ToBytes(normalized);
+}
+
+function makeInviteCode() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  const value = [...bytes].map((byte) => alphabet[byte % alphabet.length]).join("");
+  return `VTLN-${value.slice(0, 4)}-${value.slice(4, 8)}-${value.slice(8, 12)}`;
+}
+
+export function normalizeInviteCode(value) {
+  return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+function parseImageDataUrl(value) {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([a-zA-Z0-9+/=]+)$/.exec(value);
+  if (!match) return null;
+  try {
+    const bytes = base64ToBytes(match[2]);
+    return { bytes, contentType: match[1], extension: match[1] === "image/png" ? "png" : match[1] === "image/webp" ? "webp" : "jpg" };
+  } catch {
+    return null;
+  }
+}
+
+function exactArrayBuffer(bytes) {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
+function safeFilename(value) {
+  return String(value || "file").replace(/[^a-zA-Z0-9_.-]/g, "-").slice(0, 120) || "file";
+}
+
+function pathPart(request, index) {
+  return new URL(request.url).pathname.split("/")[index] || "";
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 }
 
 export function isOriginAllowed(origin, requestOrigin, configuredOrigins = "") {
@@ -204,9 +772,7 @@ export function getRateLimitKey(request, userId) {
 }
 
 export function normalizeRenderPreset(value) {
-  const presetName = value === undefined || value === null || value === ""
-    ? "medium-1536"
-    : String(value).trim().toLowerCase();
+  const presetName = value === undefined || value === null || value === "" ? "medium-1536" : String(value).trim().toLowerCase();
   const presets = {
     "medium-1536": { name: "medium-1536", quality: "medium", size: "1536x1536" },
     "medium-2000": { name: "medium-2000", quality: "medium", size: "2000x2000" },
@@ -224,9 +790,10 @@ function withCors(response, origin) {
   const headers = new Headers(response.headers);
   if (origin) headers.set("access-control-allow-origin", origin);
   headers.set("vary", "Origin");
-  headers.set("access-control-allow-methods", "GET, POST, OPTIONS");
-  headers.set("access-control-allow-headers", "Content-Type, X-Designer-ID");
+  headers.set("access-control-allow-methods", "GET, POST, PATCH, OPTIONS");
+  headers.set("access-control-allow-headers", "Content-Type, Authorization, X-Designer-ID");
   headers.set("x-content-type-options", "nosniff");
   headers.set("referrer-policy", "strict-origin-when-cross-origin");
+  headers.set("content-security-policy", "default-src 'none'; frame-ancestors 'none'");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }

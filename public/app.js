@@ -1,4 +1,8 @@
 const API_BASE = (window.VITALINI_API_BASE || "").replace(/\/$/, "");
+const SESSION_KEY = "vitalini_client_session_v1";
+let sessionToken = localStorage.getItem(SESSION_KEY) || "";
+let logoRenderTimer = null;
+let logoRenderSequence = 0;
 
 const CATALOG = {
   Jackets: [
@@ -36,6 +40,13 @@ const COLORS = [
 ];
 
 const elements = {
+  authGate: document.querySelector("#authGate"),
+  appShell: document.querySelector("#appShell"),
+  loginTab: document.querySelector("#loginTab"),
+  registerTab: document.querySelector("#registerTab"),
+  loginForm: document.querySelector("#loginForm"),
+  registerForm: document.querySelector("#registerForm"),
+  authError: document.querySelector("#authError"),
   iframe: document.querySelector("#viewer"),
   type: document.querySelector("#typeSelect"),
   model: document.querySelector("#modelSelect"),
@@ -48,7 +59,30 @@ const elements = {
   historyPosition: document.querySelector("#historyPosition"),
   previous: document.querySelector("#previousButton"),
   next: document.querySelector("#nextButton"),
-  download: document.querySelector("#downloadButton")
+  download: document.querySelector("#downloadButton"),
+  logoInput: document.querySelector("#logoInput"),
+  logoUpload: document.querySelector("#logoUploadButton"),
+  logoEditor: document.querySelector("#logoEditor"),
+  logoPreview: document.querySelector("#logoPreview"),
+  logoName: document.querySelector("#logoName"),
+  logoRemove: document.querySelector("#logoRemoveButton"),
+  logoX: document.querySelector("#logoX"),
+  logoY: document.querySelector("#logoY"),
+  logoSize: document.querySelector("#logoSize"),
+  requestMessage: document.querySelector("#requestMessage"),
+  requestButton: document.querySelector("#requestButton"),
+  designStatus: document.querySelector("#designStatus"),
+  accountButton: document.querySelector("#accountButton"),
+  accountInitial: document.querySelector("#accountInitial"),
+  accountDrawer: document.querySelector("#accountDrawer"),
+  accountUsername: document.querySelector("#accountUsername"),
+  accountEmail: document.querySelector("#accountEmail"),
+  accountUsage: document.querySelector("#accountUsage"),
+  accountDesigns: document.querySelector("#accountDesigns"),
+  accountLogos: document.querySelector("#accountLogos"),
+  accountRequests: document.querySelector("#accountRequests"),
+  accountRequestList: document.querySelector("#accountRequestList"),
+  logout: document.querySelector("#logoutButton")
 };
 
 const state = {
@@ -58,6 +92,10 @@ const state = {
   history: [],
   historyIndex: -1,
   currentTexture: null,
+  user: null,
+  usage: null,
+  logo: null,
+  initialized: false,
   generating: false,
   bootSequence: 0,
   statusTimer: null
@@ -75,7 +113,131 @@ function getDesignerId() {
   return value;
 }
 
+async function bootstrap() {
+  wireAuthentication();
+  if (sessionToken) {
+    try {
+      const response = await apiFetch("/api/auth/session");
+      if (response.ok) {
+        const payload = await response.json();
+        activateWorkspace(payload.user, payload.usage);
+        return;
+      }
+    } catch {
+      // The sign-in screen below is the safe fallback.
+    }
+    clearSession();
+  }
+  showAuth("login");
+}
+
+function wireAuthentication() {
+  elements.loginTab.addEventListener("click", () => showAuth("login"));
+  elements.registerTab.addEventListener("click", () => showAuth("register"));
+  elements.loginForm.addEventListener("submit", login);
+  elements.registerForm.addEventListener("submit", register);
+}
+
+function showAuth(mode) {
+  const registering = mode === "register";
+  elements.authGate.hidden = false;
+  elements.appShell.hidden = true;
+  elements.loginForm.hidden = registering;
+  elements.registerForm.hidden = !registering;
+  elements.loginTab.classList.toggle("is-active", !registering);
+  elements.registerTab.classList.toggle("is-active", registering);
+  elements.loginTab.setAttribute("aria-selected", String(!registering));
+  elements.registerTab.setAttribute("aria-selected", String(registering));
+  elements.authError.textContent = "";
+  document.body.classList.remove("is-auth-loading");
+}
+
+async function login(event) {
+  event.preventDefault();
+  setAuthBusy(elements.loginForm, true);
+  try {
+    const response = await publicApiFetch("/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        identity: document.querySelector("#loginIdentity").value,
+        password: document.querySelector("#loginPassword").value
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Sign in failed.");
+    saveSession(payload.token);
+    activateWorkspace(payload.user, payload.usage);
+  } catch (error) {
+    elements.authError.textContent = error.message || "Sign in failed.";
+  } finally {
+    setAuthBusy(elements.loginForm, false);
+  }
+}
+
+async function register(event) {
+  event.preventDefault();
+  setAuthBusy(elements.registerForm, true);
+  try {
+    const response = await publicApiFetch("/api/auth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-designer-id": designerId },
+      body: JSON.stringify({
+        inviteCode: document.querySelector("#registerCode").value,
+        username: document.querySelector("#registerUsername").value,
+        email: document.querySelector("#registerEmail").value,
+        password: document.querySelector("#registerPassword").value,
+        legacyDesignerId: designerId
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Account creation failed.");
+    saveSession(payload.token);
+    activateWorkspace(payload.user, payload.usage);
+  } catch (error) {
+    elements.authError.textContent = error.message || "Account creation failed.";
+  } finally {
+    setAuthBusy(elements.registerForm, false);
+  }
+}
+
+function setAuthBusy(form, busy) {
+  form.querySelectorAll("input, button").forEach((control) => { control.disabled = busy; });
+  const submit = form.querySelector("button[type='submit']");
+  if (submit) submit.textContent = busy ? "Please wait…" : form === elements.loginForm ? "Sign in" : "Create approved account";
+}
+
+function saveSession(token) {
+  sessionToken = token;
+  localStorage.setItem(SESSION_KEY, token);
+}
+
+function clearSession() {
+  sessionToken = "";
+  localStorage.removeItem(SESSION_KEY);
+  state.user = null;
+}
+
+function activateWorkspace(user, usage) {
+  state.user = user;
+  state.usage = usage || { used: 0, limit: 20, remaining: 20 };
+  elements.authGate.hidden = true;
+  elements.appShell.hidden = false;
+  document.body.classList.remove("is-auth-loading");
+  elements.accountInitial.textContent = (user.username || "V").slice(0, 1).toUpperCase();
+  initialize();
+}
+
+async function logout() {
+  try { await apiFetch("/api/auth/logout", { method: "POST" }); } catch { /* Local logout still succeeds. */ }
+  closeAccount();
+  clearSession();
+  location.reload();
+}
+
 function initialize() {
+  if (state.initialized) return;
+  state.initialized = true;
   elements.type.innerHTML = Object.keys(CATALOG).map((name) => `<option value="${name}">${name}</option>`).join("");
   renderSelectPicker(elements.type);
   populateModels();
@@ -84,9 +246,18 @@ function initialize() {
   elements.model.addEventListener("change", () => switchModel(elements.model.value));
   elements.prompt.addEventListener("input", updatePromptState);
   elements.generate.addEventListener("click", generateDesign);
-  elements.previous.addEventListener("click", () => showHistory(state.historyIndex - 1));
-  elements.next.addEventListener("click", () => showHistory(state.historyIndex + 1));
+  elements.previous.addEventListener("click", () => showHistory(state.historyIndex + 1));
+  elements.next.addEventListener("click", () => showHistory(state.historyIndex - 1));
   elements.download.addEventListener("click", downloadCurrentTexture);
+  elements.logoUpload.addEventListener("click", () => elements.logoInput.click());
+  elements.logoInput.addEventListener("change", handleLogoUpload);
+  elements.logoRemove.addEventListener("click", removeLogo);
+  [elements.logoX, elements.logoY, elements.logoSize].forEach((input) => input.addEventListener("input", updateLogoPlacement));
+  elements.requestMessage.addEventListener("input", updateRequestState);
+  elements.requestButton.addEventListener("click", submitDesignRequest);
+  elements.accountButton.addEventListener("click", openAccount);
+  elements.logout.addEventListener("click", logout);
+  document.querySelectorAll("[data-close-account]").forEach((item) => item.addEventListener("click", closeAccount));
   document.querySelectorAll("[data-prompt]").forEach((button) => {
     button.addEventListener("click", () => {
       elements.prompt.value = button.dataset.prompt;
@@ -105,6 +276,7 @@ function initialize() {
     }
   });
   updatePromptState();
+  updateRequestState();
 }
 
 function populateModels() {
@@ -363,8 +535,9 @@ async function generateDesign() {
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Generation failed.");
-    state.history.push(payload.design);
-    state.historyIndex = state.history.length - 1;
+    state.history.unshift(payload.design);
+    state.historyIndex = 0;
+    if (payload.usage) state.usage = payload.usage;
     await applyDesign(payload.design);
     setStatus("Texture generated and projected onto the jacket.");
   } catch (error) {
@@ -390,13 +563,29 @@ async function loadHistory() {
 }
 
 async function showHistory(index) {
-  if (index < 0 || index >= state.history.length || state.generating) return;
+  if (index < -1 || index >= state.history.length || state.generating) return;
+  if (index === -1) {
+    state.historyIndex = -1;
+    state.currentTexture = null;
+    updateHistoryUI();
+    updateRequestState();
+    elements.designStatus.textContent = "Draft";
+    elements.designStatus.classList.remove("is-executive");
+    try {
+      await resetDesignMaterial(state.model.designMaterial);
+      drawLogoPreview();
+      setStatus("Blank jacket ready. Use the back arrow to revisit saved designs.");
+    } catch {
+      setStatus("The blank jacket could not be restored.", true);
+    }
+    return;
+  }
   state.historyIndex = index;
   updateHistoryUI();
   setStatus("Applying saved texture…");
   try {
     await applyDesign(state.history[index]);
-    setStatus(`Showing design ${index + 1} of ${state.history.length}.`);
+    setStatus(`Showing design ${state.history.length - index} of ${state.history.length}.`);
   } catch (error) {
     setStatus(error.message || "Saved design could not be loaded.", true);
   }
@@ -407,10 +596,18 @@ async function applyDesign(design) {
   if (!response.ok) throw new Error("Texture image is unavailable.");
   const blob = await response.blob();
   const dataUrl = await blobToDataUrl(blob);
-  await applyTexture(state.model.designMaterial, dataUrl);
-  state.currentTexture = { dataUrl, prompt: design.prompt, id: design.id };
+  state.currentTexture = { dataUrl, baseDataUrl: dataUrl, prompt: design.prompt, id: design.id, status: design.status || "draft" };
+  if (state.logo) {
+    await renderLogoComposite(true);
+  } else {
+    await applyTexture(state.model.designMaterial, dataUrl);
+    drawLogoPreview();
+  }
   elements.prompt.value = design.prompt || elements.prompt.value;
+  elements.designStatus.textContent = state.currentTexture.status === "executive" ? "Executive" : "Draft";
+  elements.designStatus.classList.toggle("is-executive", state.currentTexture.status === "executive");
   updatePromptState();
+  updateRequestState();
 }
 
 function applyTexture(materialName, dataUrl) {
@@ -453,8 +650,12 @@ function getColorChannel(material) {
 
 function apiFetch(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  headers.set("x-designer-id", designerId);
+  if (sessionToken) headers.set("authorization", `Bearer ${sessionToken}`);
   return fetch(`${API_BASE}${path}`, { ...options, headers, cache: "no-store" });
+}
+
+function publicApiFetch(path, options = {}) {
+  return fetch(`${API_BASE}${path}`, { ...options, cache: "no-store" });
 }
 
 function setGenerating(value) {
@@ -488,11 +689,198 @@ function updatePromptState() {
 
 function updateHistoryUI() {
   const total = state.history.length;
-  const position = total ? state.historyIndex + 1 : 0;
+  const position = state.historyIndex < 0 ? 0 : total - state.historyIndex;
   elements.historyPosition.textContent = `${position} / ${total}`;
-  elements.previous.disabled = state.generating || position <= 1;
-  elements.next.disabled = state.generating || !total || position >= total;
+  elements.previous.disabled = state.generating || !total || state.historyIndex >= total - 1;
+  elements.next.disabled = state.generating || state.historyIndex < 0;
   elements.download.disabled = !state.currentTexture;
+  updateRequestState();
+}
+
+async function handleLogoUpload() {
+  const file = elements.logoInput.files?.[0];
+  if (!file) return;
+  if (!(["image/png", "image/jpeg", "image/webp"].includes(file.type)) || file.size > 5 * 1024 * 1024) {
+    setStatus("Use a PNG, JPEG, or WebP logo up to 5 MB.", true);
+    elements.logoInput.value = "";
+    return;
+  }
+
+  elements.logoUpload.disabled = true;
+  elements.logoUpload.textContent = "Uploading logo…";
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    const image = await loadImage(dataUrl);
+    const form = new FormData();
+    form.append("logo", file);
+    const response = await apiFetch("/api/logos", { method: "POST", body: form });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Logo upload failed.");
+    state.logo = {
+      id: payload.logo.id,
+      name: payload.logo.name || file.name,
+      image,
+      dataUrl,
+      x: Number(elements.logoX.value),
+      y: Number(elements.logoY.value),
+      size: Number(elements.logoSize.value)
+    };
+    elements.logoName.textContent = state.logo.name;
+    elements.logoEditor.hidden = false;
+    if (state.currentTexture) await renderLogoComposite(true);
+    else drawLogoPreview();
+    setStatus("Logo uploaded. Adjust its position and size on the texture preview.");
+  } catch (error) {
+    setStatus(error.message || "Logo upload failed.", true);
+  } finally {
+    elements.logoUpload.disabled = false;
+    elements.logoUpload.textContent = "Upload another logo";
+    elements.logoInput.value = "";
+  }
+}
+
+function updateLogoPlacement() {
+  if (!state.logo) return;
+  state.logo.x = Number(elements.logoX.value);
+  state.logo.y = Number(elements.logoY.value);
+  state.logo.size = Number(elements.logoSize.value);
+  clearTimeout(logoRenderTimer);
+  logoRenderTimer = setTimeout(() => {
+    if (state.currentTexture) renderLogoComposite(true).catch((error) => setStatus(error.message, true));
+    else drawLogoPreview();
+  }, 120);
+}
+
+async function removeLogo() {
+  state.logo = null;
+  elements.logoEditor.hidden = true;
+  elements.logoUpload.textContent = "Upload logo";
+  if (state.currentTexture) {
+    state.currentTexture.dataUrl = state.currentTexture.baseDataUrl;
+    try { await applyTexture(state.model.designMaterial, state.currentTexture.baseDataUrl); } catch { /* Status remains usable. */ }
+  }
+  drawLogoPreview();
+}
+
+async function renderLogoComposite(applyToModel) {
+  if (!state.currentTexture?.baseDataUrl) return null;
+  const sequence = ++logoRenderSequence;
+  const dataUrl = await composeCurrentTexture("image/png");
+  if (sequence !== logoRenderSequence) return null;
+  state.currentTexture.dataUrl = dataUrl;
+  if (applyToModel) await applyTexture(state.model.designMaterial, dataUrl);
+  return dataUrl;
+}
+
+async function composeCurrentTexture(type = "image/png", quality) {
+  if (!state.currentTexture?.baseDataUrl) return null;
+  const base = await loadImage(state.currentTexture.baseDataUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = base.naturalWidth || base.width;
+  canvas.height = base.naturalHeight || base.height;
+  const context = canvas.getContext("2d");
+  context.drawImage(base, 0, 0, canvas.width, canvas.height);
+  if (state.logo?.image) {
+    const aspect = state.logo.image.naturalHeight / state.logo.image.naturalWidth || 1;
+    const width = canvas.width * (state.logo.size / 100);
+    const height = width * aspect;
+    const centerX = canvas.width * (state.logo.x / 100);
+    const centerY = canvas.height * (state.logo.y / 100);
+    context.drawImage(state.logo.image, centerX - width / 2, centerY - height / 2, width, height);
+  }
+  drawCanvasPreview(canvas);
+  return canvas.toDataURL(type, quality);
+}
+
+function drawCanvasPreview(source) {
+  const context = elements.logoPreview.getContext("2d");
+  context.clearRect(0, 0, elements.logoPreview.width, elements.logoPreview.height);
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, elements.logoPreview.width, elements.logoPreview.height);
+  context.drawImage(source, 0, 0, elements.logoPreview.width, elements.logoPreview.height);
+}
+
+function drawLogoPreview() {
+  const context = elements.logoPreview.getContext("2d");
+  context.clearRect(0, 0, elements.logoPreview.width, elements.logoPreview.height);
+  context.fillStyle = "#f4f3ef";
+  context.fillRect(0, 0, elements.logoPreview.width, elements.logoPreview.height);
+  context.fillStyle = "#8a8983";
+  context.font = "12px system-ui";
+  context.textAlign = "center";
+  context.fillText(state.currentTexture ? "Loading preview…" : "Open or generate a design to position the logo", 160, 160);
+}
+
+function updateRequestState() {
+  const messageReady = elements.requestMessage.value.trim().length >= 3;
+  elements.requestButton.disabled = !state.currentTexture || !messageReady || state.generating;
+}
+
+async function submitDesignRequest() {
+  if (!state.currentTexture) return;
+  const message = elements.requestMessage.value.trim();
+  if (message.length < 3) return;
+  elements.requestButton.disabled = true;
+  elements.requestButton.textContent = "Sending request…";
+  try {
+    const previewDataUrl = await composeCurrentTexture("image/jpeg", .9) || state.currentTexture.dataUrl;
+    const response = await apiFetch("/api/requests", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        designId: state.currentTexture.id,
+        logoId: state.logo?.id || null,
+        message,
+        previewDataUrl,
+        placement: state.logo ? { x: state.logo.x, y: state.logo.y, size: state.logo.size, logoName: state.logo.name } : null
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Request could not be sent.");
+    elements.requestMessage.value = "";
+    setStatus(payload.emailSent
+      ? `Request sent to ${payload.recipient}.`
+      : `Request saved. Your email app is opening a message to ${payload.recipient}.`);
+    if (!payload.emailSent && payload.mailtoUrl) window.location.href = payload.mailtoUrl;
+    if (!elements.accountDrawer.hidden) await loadAccount();
+  } catch (error) {
+    setStatus(error.message || "Request could not be sent.", true);
+  } finally {
+    elements.requestButton.textContent = "Request this design";
+    updateRequestState();
+  }
+}
+
+async function openAccount() {
+  elements.accountDrawer.hidden = false;
+  elements.accountButton.setAttribute("aria-expanded", "true");
+  await loadAccount();
+}
+
+function closeAccount() {
+  elements.accountDrawer.hidden = true;
+  elements.accountButton.setAttribute("aria-expanded", "false");
+}
+
+async function loadAccount() {
+  try {
+    const response = await apiFetch("/api/account");
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || "Account information is unavailable.");
+    state.user = payload.user;
+    state.usage = payload.usage;
+    elements.accountUsername.textContent = payload.user.username;
+    elements.accountEmail.textContent = payload.user.email;
+    elements.accountUsage.textContent = `${payload.usage.used} / ${payload.usage.limit}`;
+    elements.accountDesigns.textContent = payload.counts.designs;
+    elements.accountLogos.textContent = payload.counts.logos;
+    elements.accountRequests.textContent = payload.counts.requests;
+    elements.accountRequestList.innerHTML = payload.requests.length
+      ? payload.requests.map((item) => `<div class="account-request-item"><strong>${escapeMarkup(item.status.replace("_", " "))}</strong><span>${escapeMarkup(item.message.slice(0, 120))}</span></div>`).join("")
+      : "<div class=\"account-request-item\"><strong>No requests yet</strong><span>Your submitted design requests will appear here.</span></div>";
+  } catch (error) {
+    setStatus(error.message || "Account information is unavailable.", true);
+  }
 }
 
 function downloadCurrentTexture() {
@@ -512,6 +900,23 @@ function blobToDataUrl(blob) {
   });
 }
 
+function fileToDataUrl(file) {
+  return blobToDataUrl(file);
+}
+
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("The image could not be loaded."));
+    image.src = dataUrl;
+  });
+}
+
+function escapeMarkup(value) {
+  return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
+}
+
 function hexToRgb(hex) {
   const value = Number.parseInt(hex.slice(1), 16);
   return [(value >> 16 & 255) / 255, (value >> 8 & 255) / 255, (value & 255) / 255];
@@ -527,4 +932,4 @@ function colorDistance(a, b) {
   return av.reduce((sum, value, index) => sum + Math.pow(value - bv[index], 2), 0);
 }
 
-initialize();
+bootstrap();

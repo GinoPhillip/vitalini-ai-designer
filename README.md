@@ -2,7 +2,7 @@
 
 A renewed version of the original Sketchfab jacket designer. It serves the responsive frontend and API from one Cloudflare Worker, generates UV textures with OpenAI's `gpt-image-2`, projects them onto the correct Sketchfab material, and stores customer history in Cloudflare D1 + R2.
 
-The frontend also deploys from `public/` to GitHub Pages. Until the Cloudflare Worker is deployed, the public site supports the 3D viewer, model switching, and live material colors; AI generation and server history require the Worker URL in `public/config.js`.
+The frontend also deploys from `public/` to GitHub Pages. The Worker provides invite-only client accounts, private design/logo/request files, a 20-generation daily account limit, and the administrator workflow at `public/admin.html`.
 
 ## Included model mappings
 
@@ -70,7 +70,17 @@ Store the provider key as an encrypted Worker secret:
 npx wrangler secret put OPENAI_API_KEY
 ```
 
-Optionally change `IMAGE_QUALITY` to `low` for cheaper drafts or `high` for final output. If a separate frontend origin will call this Worker, add it to the comma-separated `ALLOWED_ORIGINS` value; same-origin deployment needs no value.
+Store a separate administrator password as an encrypted Worker secret:
+
+```bash
+npx wrangler secret put ADMIN_PASSWORD
+```
+
+If a separate frontend origin will call this Worker, add it to the comma-separated `ALLOWED_ORIGINS` value; same-origin deployment needs no value.
+
+### Direct request email
+
+Every design request is stored in D1/R2 even when email delivery is unavailable. Without an email binding, the client is given a prefilled email to `REQUEST_EMAIL` as a fallback. To send automatically, onboard a sender domain in Cloudflare Email Service, add an Email Service binding named `EMAIL`, and set `EMAIL_FROM` to an address on that onboarded domain. The submitted preview is attached when it is 5 MB or smaller.
 
 Deploy:
 
@@ -82,8 +92,9 @@ Afterward, attach the contractor's custom domain in Cloudflare Workers & Pages â
 
 ## Production notes
 
-- Native Cloudflare rate limiting allows five generations per visitor IP per minute, with the private designer ID used as a local-development fallback. Change the `namespace_id` if `1001` is already used by another limiter in the same Cloudflare account.
-- D1 stores only metadata and prompts; R2 stores PNG texture files privately.
-- Generated image routes verify the browser's private designer ID before returning a file.
-- The browser keeps that random ID in `localStorage`. For authenticated customer accounts, replace it with a signed server session or Cloudflare Access identity.
+- Native Cloudflare rate limiting allows five generations per account/IP per minute, and D1 atomically enforces 20 generations per account per UTC day. Change the `namespace_id` if `1001` is already used by another limiter in the same Cloudflare account.
+- D1 stores account/workflow metadata and prompts; R2 stores generated textures, uploaded logos, and request previews privately.
+- Passwords use salted PBKDF2-SHA-256 hashes. Invite codes and bearer sessions are stored only as hashes.
+- Private file routes require either the owning client session or the administrator session. The client download button intentionally remains enabled for now.
+- Administrators can generate single- or multi-use account codes, inspect every creation for one client, suspend access, mark designs Draft/Executive, and move requests through review/finalized states.
 - Run `npm test` before deployment.
