@@ -20,14 +20,9 @@ test("generation rate limiting uses the Cloudflare client address", () => {
   assert.equal(getRateLimitKey(new Request("https://studio.example.com"), "designer-123456789"), "designer-123456789:generate");
 });
 
-test("generation presets map to server-controlled quality and size", () => {
+test("generation settings are fixed server-side to the hidden default", () => {
   assert.deepEqual(normalizeRenderPreset(undefined), { name: "medium-1536", quality: "medium", size: "1536x1536" });
-  assert.deepEqual(normalizeRenderPreset("MEDIUM-2000"), { name: "medium-2000", quality: "medium", size: "2000x2000" });
-  assert.deepEqual(normalizeRenderPreset("high-1536"), { name: "high-1536", quality: "high", size: "1536x1536" });
-  assert.deepEqual(normalizeRenderPreset("high-2000"), { name: "high-2000", quality: "high", size: "2000x2000" });
-  assert.equal(normalizeRenderPreset("low"), null);
-  assert.equal(normalizeRenderPreset("medium"), null);
-  assert.equal(normalizeRenderPreset("auto"), null);
+  assert.deepEqual(normalizeRenderPreset("high-2000"), { name: "medium-1536", quality: "medium", size: "1536x1536" });
 });
 
 test("account creation codes normalize consistently", () => {

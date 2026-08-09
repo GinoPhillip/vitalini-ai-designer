@@ -246,10 +246,9 @@ async function generateDesign(request, env, user) {
 
   const prompt = String(payload.prompt || "").trim();
   const modelId = String(payload.modelId || "").trim();
-  const renderPreset = normalizeRenderPreset(payload.renderPreset ?? payload.quality);
+  const renderPreset = normalizeRenderPreset();
   const model = MODELS[modelId];
   if (!model) return json({ error: "Unknown product model." }, 400);
-  if (!renderPreset) return json({ error: "Choose a supported generation preset." }, 400);
   if (prompt.length < 3 || prompt.length > 800) return json({ error: "Describe the design in 3 to 800 characters." }, 400);
 
   if (env.IMAGE_RATE_LIMITER) {
@@ -791,15 +790,8 @@ export function getRateLimitKey(request, userId) {
   return `${clientIp || userId}:generate`;
 }
 
-export function normalizeRenderPreset(value) {
-  const presetName = value === undefined || value === null || value === "" ? "medium-1536" : String(value).trim().toLowerCase();
-  const presets = {
-    "medium-1536": { name: "medium-1536", quality: "medium", size: "1536x1536" },
-    "medium-2000": { name: "medium-2000", quality: "medium", size: "2000x2000" },
-    "high-1536": { name: "high-1536", quality: "high", size: "1536x1536" },
-    "high-2000": { name: "high-2000", quality: "high", size: "2000x2000" }
-  };
-  return presets[presetName] || null;
+export function normalizeRenderPreset() {
+  return { name: "medium-1536", quality: "medium", size: "1536x1536" };
 }
 
 function json(body, status = 200) {
