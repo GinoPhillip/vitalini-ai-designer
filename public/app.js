@@ -46,6 +46,7 @@ const elements = {
   registerTab: document.querySelector("#registerTab"),
   loginForm: document.querySelector("#loginForm"),
   registerForm: document.querySelector("#registerForm"),
+  registerUsername: document.querySelector("#registerUsername"),
   authError: document.querySelector("#authError"),
   iframe: document.querySelector("#viewer"),
   type: document.querySelector("#typeSelect"),
@@ -136,6 +137,10 @@ function wireAuthentication() {
   elements.registerTab.addEventListener("click", () => showAuth("register"));
   elements.loginForm.addEventListener("submit", login);
   elements.registerForm.addEventListener("submit", register);
+  elements.registerUsername.addEventListener("input", () => {
+    const normalized = elements.registerUsername.value.replace(/\s/g, "_");
+    if (normalized !== elements.registerUsername.value) elements.registerUsername.value = normalized;
+  });
 }
 
 function showAuth(mode) {
