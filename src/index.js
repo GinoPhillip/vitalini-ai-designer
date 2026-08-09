@@ -90,7 +90,9 @@ async function routeAdmin(request, env) {
   if (request.method === "GET" && path === "/api/admin/users") return listAdminUsers(env);
   if (request.method === "GET" && /^\/api\/admin\/users\/[^/]+$/.test(path)) return getAdminUser(request, env);
   if (request.method === "PATCH" && /^\/api\/admin\/users\/[^/]+$/.test(path)) return updateAdminUser(request, env);
+  if (request.method === "DELETE" && /^\/api\/admin\/users\/[^/]+$/.test(path)) return deleteAdminUser(request, env);
   if (request.method === "GET" && path === "/api/admin/requests") return listAdminRequests(env);
+  if (request.method === "GET" && /^\/api\/admin\/requests\/[^/]+$/.test(path)) return getAdminRequest(request, env);
   if (request.method === "PATCH" && /^\/api\/admin\/requests\/[^/]+$/.test(path)) return updateAdminRequest(request, env);
   if (request.method === "PATCH" && /^\/api\/admin\/designs\/[^/]+$/.test(path)) return updateAdminDesign(request, env);
   if (request.method === "GET" && /^\/api\/admin\/designs\/[^/]+\/image$/.test(path)) return getAdminDesignImage(request, env);
@@ -407,16 +409,17 @@ async function createDesignRequest(request, env, user) {
   const payload = await readJson(request, 22 * 1024 * 1024);
   if (payload instanceof Response) return payload;
   const designId = String(payload.designId || "");
-  const logoId = String(payload.logoId || "");
+  const logoIds = [...new Set((Array.isArray(payload.logoIds) ? payload.logoIds : [payload.logoId]).filter(Boolean).map(String))].slice(0, 8);
+  const logoId = logoIds[0] || "";
   const message = String(payload.message || "").trim();
   const placement = payload.placement && typeof payload.placement === "object" ? payload.placement : null;
   if (!UUID_RE.test(designId)) return json({ error: "Choose a generated design first." }, 400);
   if (message.length < 3 || message.length > 2000) return json({ error: "Add a message between 3 and 2,000 characters." }, 400);
   const design = await env.DB.prepare("SELECT id, model_id, prompt FROM designs WHERE id = ? AND user_id = ?").bind(designId, user.id).first();
   if (!design) return json({ error: "Design not found." }, 404);
-  if (logoId) {
-    const logo = UUID_RE.test(logoId) && await env.DB.prepare("SELECT id FROM logos WHERE id = ? AND user_id = ?").bind(logoId, user.id).first();
-    if (!logo) return json({ error: "Selected logo is unavailable." }, 400);
+  for (const requestedLogoId of logoIds) {
+    const logo = UUID_RE.test(requestedLogoId) && await env.DB.prepare("SELECT id FROM logos WHERE id = ? AND user_id = ?").bind(requestedLogoId, user.id).first();
+    if (!logo) return json({ error: "One of the selected logos is unavailable." }, 400);
   }
 
   const preview = parseImageDataUrl(String(payload.previewDataUrl || ""));
@@ -437,12 +440,8 @@ async function createDesignRequest(request, env, user) {
     throw error;
   }
 
-  const emailResult = await notifyDesignRequest(request, env, user, { id, design, message, preview });
   return json({
-    request: { id, designId, message, status: "new", createdAt: now, previewUrl: `/api/requests/${id}/preview` },
-    emailSent: emailResult.sent,
-    mailtoUrl: emailResult.mailtoUrl,
-    recipient: emailResult.recipient
+    request: { id, designId, message, status: "new", createdAt: now, previewUrl: `/api/requests/${id}/preview` }
   }, 201);
 }
 
@@ -458,54 +457,6 @@ async function getRequestPreview(request, env, user) {
   if (!UUID_RE.test(id)) return json({ error: "Invalid request preview." }, 400);
   const row = await env.DB.prepare("SELECT preview_object_key FROM design_requests WHERE id = ? AND user_id = ?").bind(id, user.id).first();
   return row ? r2Response(env, row.preview_object_key, `vitalini-request-${id}.jpg`) : json({ error: "Request not found." }, 404);
-}
-
-async function notifyDesignRequest(request, env, user, details) {
-  const recipient = env.REQUEST_EMAIL || "marco@pietrovitalini.it";
-  const appUrl = (env.PUBLIC_APP_URL || "https://ginophillip.github.io/vitalini-ai-designer").replace(/\/$/, "");
-  const adminUrl = `${appUrl}/admin.html?user=${encodeURIComponent(user.id)}&request=${encodeURIComponent(details.id)}`;
-  const subject = `Vitalini design request — ${user.username} — ${details.design.model_id}`;
-  const text = [
-    "A client submitted a Vitalini design request.",
-    `Client: ${user.username}`,
-    `Email: ${user.email}`,
-    `Model: ${details.design.model_id}`,
-    `Design ID: ${details.design.id}`,
-    `Request ID: ${details.id}`,
-    "",
-    `Message: ${details.message}`,
-    "",
-    `Open the client's creations: ${adminUrl}`
-  ].join("\n");
-  let sent = false;
-
-  if (env.EMAIL?.send && env.EMAIL_FROM) {
-    try {
-      const email = {
-        to: recipient,
-        from: env.EMAIL_FROM,
-        replyTo: user.email,
-        subject,
-        text,
-        html: `<h2>New Vitalini design request</h2><p><strong>Client:</strong> ${escapeHtml(user.username)} (${escapeHtml(user.email)})</p><p><strong>Model:</strong> ${escapeHtml(details.design.model_id)}</p><p><strong>Message:</strong><br>${escapeHtml(details.message).replace(/\n/g, "<br>")}</p><p><a href="${escapeHtml(adminUrl)}">Open this client's creations</a></p>`
-      };
-      if (details.preview.bytes.byteLength <= MAX_LOGO_BYTES) {
-        email.attachments = [{
-          filename: `vitalini-${details.design.model_id}-${details.id}.${details.preview.extension}`,
-          content: exactArrayBuffer(details.preview.bytes),
-          type: details.preview.contentType,
-          disposition: "attachment"
-        }];
-      }
-      await env.EMAIL.send(email);
-      sent = true;
-    } catch (error) {
-      console.error("Design request email failed", error);
-    }
-  }
-
-  const mailtoUrl = `mailto:${encodeURIComponent(recipient)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
-  return { sent, mailtoUrl, recipient };
 }
 
 async function createInvite(request, env) {
@@ -551,24 +502,49 @@ async function updateAdminUser(request, env) {
   return json({ id: userId, status });
 }
 
+async function deleteAdminUser(request, env) {
+  const userId = pathPart(request, 4);
+  if (!UUID_RE.test(userId)) return json({ error: "Invalid user." }, 400);
+  const user = await env.DB.prepare("SELECT id FROM users WHERE id = ?").bind(userId).first();
+  if (!user) return json({ error: "User not found." }, 404);
+  const [designObjects, logoObjects, requestObjects] = await Promise.all([
+    env.DB.prepare("SELECT object_key FROM designs WHERE user_id = ?").bind(userId).all(),
+    env.DB.prepare("SELECT object_key FROM logos WHERE user_id = ?").bind(userId).all(),
+    env.DB.prepare("SELECT preview_object_key FROM design_requests WHERE user_id = ?").bind(userId).all()
+  ]);
+  const objectKeys = [
+    ...(designObjects.results || []).map((item) => item.object_key),
+    ...(logoObjects.results || []).map((item) => item.object_key),
+    ...(requestObjects.results || []).map((item) => item.preview_object_key)
+  ].filter(Boolean);
+  await Promise.all(objectKeys.map((key) => env.DESIGNS.delete(key)));
+  await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
+  return json({ id: userId, deleted: true, privateFilesDeleted: objectKeys.length });
+}
+
 async function getAdminUser(request, env) {
   const userId = pathPart(request, 4);
   if (!UUID_RE.test(userId)) return json({ error: "Invalid user." }, 400);
+  const profile = await getAdminUserProfile(env, userId);
+  return profile ? json(profile) : json({ error: "User not found." }, 404);
+}
+
+async function getAdminUserProfile(env, userId) {
   const user = await env.DB.prepare("SELECT id, username, email, status, created_at, last_login_at FROM users WHERE id = ?").bind(userId).first();
-  if (!user) return json({ error: "User not found." }, 404);
+  if (!user) return null;
   const [designResult, logoResult, requestResult, usage] = await Promise.all([
     env.DB.prepare("SELECT id, model_id, prompt, status, render_preset, created_at, updated_at FROM designs WHERE user_id = ? ORDER BY created_at DESC").bind(userId).all(),
     env.DB.prepare("SELECT id, name, content_type, size_bytes, created_at FROM logos WHERE user_id = ? ORDER BY created_at DESC").bind(userId).all(),
     env.DB.prepare("SELECT id, design_id, message, status, created_at, updated_at FROM design_requests WHERE user_id = ? ORDER BY created_at DESC").bind(userId).all(),
     getDailyUsage(env, userId)
   ]);
-  return json({
+  return {
     user,
     usage,
     designs: (designResult.results || []).map((item) => ({ ...serializeDesign(item), imageUrl: `/api/admin/designs/${item.id}/image` })),
     logos: (logoResult.results || []).map((item) => ({ ...item, fileUrl: `/api/admin/logos/${item.id}/file` })),
     requests: (requestResult.results || []).map((item) => ({ ...item, previewUrl: `/api/admin/requests/${item.id}/preview` }))
-  });
+  };
 }
 
 async function listAdminRequests(env) {
@@ -576,6 +552,40 @@ async function listAdminRequests(env) {
     "SELECT r.id, r.user_id, r.design_id, r.message, r.status, r.created_at, r.updated_at, u.username, u.email, d.model_id FROM design_requests r JOIN users u ON u.id = r.user_id JOIN designs d ON d.id = r.design_id ORDER BY r.created_at DESC"
   ).all();
   return json({ requests: results.map((item) => ({ ...item, previewUrl: `/api/admin/requests/${item.id}/preview` })) });
+}
+
+async function getAdminRequest(request, env) {
+  const requestId = pathPart(request, 4);
+  if (!UUID_RE.test(requestId)) return json({ error: "Invalid request." }, 400);
+  const item = await env.DB.prepare(
+    "SELECT r.id, r.user_id, r.design_id, r.message, r.placement_json, r.status, r.created_at, r.updated_at, u.username, u.email, d.model_id, d.prompt, d.status AS design_status, d.render_preset, d.created_at AS design_created_at FROM design_requests r JOIN users u ON u.id = r.user_id JOIN designs d ON d.id = r.design_id WHERE r.id = ?"
+  ).bind(requestId).first();
+  if (!item) return json({ error: "Request not found." }, 404);
+  const profile = await getAdminUserProfile(env, item.user_id);
+  return json({
+    request: {
+      id: item.id,
+      userId: item.user_id,
+      message: item.message,
+      placement: parseJsonObject(item.placement_json),
+      status: item.status,
+      createdAt: item.created_at,
+      updatedAt: item.updated_at,
+      username: item.username,
+      email: item.email,
+      previewUrl: `/api/admin/requests/${item.id}/preview`,
+      design: {
+        id: item.design_id,
+        modelId: item.model_id,
+        prompt: item.prompt,
+        status: item.design_status || "draft",
+        renderPreset: item.render_preset || null,
+        createdAt: item.design_created_at,
+        imageUrl: `/api/admin/designs/${item.design_id}/image`
+      }
+    },
+    profile
+  });
 }
 
 async function updateAdminRequest(request, env) {
@@ -748,8 +758,14 @@ function parseImageDataUrl(value) {
   }
 }
 
-function exactArrayBuffer(bytes) {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+function parseJsonObject(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 function safeFilename(value) {
@@ -758,10 +774,6 @@ function safeFilename(value) {
 
 function pathPart(request, index) {
   return new URL(request.url).pathname.split("/")[index] || "";
-}
-
-function escapeHtml(value) {
-  return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
 }
 
 export function isOriginAllowed(origin, requestOrigin, configuredOrigins = "") {
@@ -798,7 +810,7 @@ function withCors(response, origin) {
   const headers = new Headers(response.headers);
   if (origin) headers.set("access-control-allow-origin", origin);
   headers.set("vary", "Origin");
-  headers.set("access-control-allow-methods", "GET, POST, PATCH, OPTIONS");
+  headers.set("access-control-allow-methods", "GET, POST, PATCH, DELETE, OPTIONS");
   headers.set("access-control-allow-headers", "Content-Type, Authorization, X-Designer-ID");
   headers.set("x-content-type-options", "nosniff");
   headers.set("referrer-policy", "strict-origin-when-cross-origin");

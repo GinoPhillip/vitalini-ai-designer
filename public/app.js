@@ -60,15 +60,13 @@ const elements = {
   historyPosition: document.querySelector("#historyPosition"),
   previous: document.querySelector("#previousButton"),
   next: document.querySelector("#nextButton"),
-  download: document.querySelector("#downloadButton"),
   logoInput: document.querySelector("#logoInput"),
   logoUpload: document.querySelector("#logoUploadButton"),
   logoEditor: document.querySelector("#logoEditor"),
   logoPreview: document.querySelector("#logoPreview"),
+  logoLayerList: document.querySelector("#logoLayerList"),
   logoName: document.querySelector("#logoName"),
   logoRemove: document.querySelector("#logoRemoveButton"),
-  logoX: document.querySelector("#logoX"),
-  logoY: document.querySelector("#logoY"),
   logoSize: document.querySelector("#logoSize"),
   requestMessage: document.querySelector("#requestMessage"),
   requestButton: document.querySelector("#requestButton"),
@@ -95,7 +93,9 @@ const state = {
   currentTexture: null,
   user: null,
   usage: null,
-  logo: null,
+  logos: [],
+  selectedLogoId: null,
+  logoDrag: null,
   initialized: false,
   generating: false,
   bootSequence: 0,
@@ -253,11 +253,14 @@ function initialize() {
   elements.generate.addEventListener("click", generateDesign);
   elements.previous.addEventListener("click", () => showHistory(state.historyIndex + 1));
   elements.next.addEventListener("click", () => showHistory(state.historyIndex - 1));
-  elements.download.addEventListener("click", downloadCurrentTexture);
   elements.logoUpload.addEventListener("click", () => elements.logoInput.click());
   elements.logoInput.addEventListener("change", handleLogoUpload);
   elements.logoRemove.addEventListener("click", removeLogo);
-  [elements.logoX, elements.logoY, elements.logoSize].forEach((input) => input.addEventListener("input", updateLogoPlacement));
+  elements.logoSize.addEventListener("input", updateLogoSize);
+  elements.logoPreview.addEventListener("pointerdown", beginLogoDrag);
+  elements.logoPreview.addEventListener("pointermove", moveLogoDrag);
+  elements.logoPreview.addEventListener("pointerup", endLogoDrag);
+  elements.logoPreview.addEventListener("pointercancel", endLogoDrag);
   elements.requestMessage.addEventListener("input", updateRequestState);
   elements.requestButton.addEventListener("click", submitDesignRequest);
   elements.accountButton.addEventListener("click", openAccount);
@@ -300,6 +303,7 @@ function switchModel(modelId) {
   state.history = [];
   state.historyIndex = -1;
   state.currentTexture = null;
+  renderLogoEditor();
   renderMaterialControls();
   updateHistoryUI();
   bootViewer(model);
@@ -578,7 +582,7 @@ async function showHistory(index) {
     elements.designStatus.classList.remove("is-executive");
     try {
       await resetDesignMaterial(state.model.designMaterial);
-      drawLogoPreview();
+      renderLogoEditor();
       setStatus("Blank jacket ready. Use the back arrow to revisit saved designs.");
     } catch {
       setStatus("The blank jacket could not be restored.", true);
@@ -601,12 +605,13 @@ async function applyDesign(design) {
   if (!response.ok) throw new Error("Texture image is unavailable.");
   const blob = await response.blob();
   const dataUrl = await blobToDataUrl(blob);
-  state.currentTexture = { dataUrl, baseDataUrl: dataUrl, prompt: design.prompt, id: design.id, status: design.status || "draft" };
-  if (state.logo) {
+  const baseImage = await loadImage(dataUrl);
+  state.currentTexture = { dataUrl, baseDataUrl: dataUrl, baseImage, prompt: design.prompt, id: design.id, status: design.status || "draft" };
+  if (state.logos.length) {
     await renderLogoComposite(true);
   } else {
     await applyTexture(state.model.designMaterial, dataUrl);
-    drawLogoPreview();
+    await renderLogoEditor();
   }
   elements.prompt.value = design.prompt || elements.prompt.value;
   elements.designStatus.textContent = state.currentTexture.status === "executive" ? "Executive" : "Draft";
@@ -698,13 +703,17 @@ function updateHistoryUI() {
   elements.historyPosition.textContent = `${position} / ${total}`;
   elements.previous.disabled = state.generating || !total || state.historyIndex >= total - 1;
   elements.next.disabled = state.generating || state.historyIndex < 0;
-  elements.download.disabled = !state.currentTexture;
   updateRequestState();
 }
 
 async function handleLogoUpload() {
   const file = elements.logoInput.files?.[0];
   if (!file) return;
+  if (state.logos.length >= 8) {
+    setStatus("You can place up to eight logos on one design.", true);
+    elements.logoInput.value = "";
+    return;
+  }
   if (!(["image/png", "image/jpeg", "image/webp"].includes(file.type)) || file.size > 5 * 1024 * 1024) {
     setStatus("Use a PNG, JPEG, or WebP logo up to 5 MB.", true);
     elements.logoInput.value = "";
@@ -721,50 +730,105 @@ async function handleLogoUpload() {
     const response = await apiFetch("/api/logos", { method: "POST", body: form });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Logo upload failed.");
-    state.logo = {
+    const aspect = image.naturalHeight / image.naturalWidth || 1;
+    const offset = ((state.logos.length % 3) - 1) * 7;
+    const logo = {
       id: payload.logo.id,
       name: payload.logo.name || file.name,
       image,
       dataUrl,
-      x: Number(elements.logoX.value),
-      y: Number(elements.logoY.value),
-      size: Number(elements.logoSize.value)
+      x: 50 + offset,
+      y: 50 + offset,
+      size: Math.min(18, 68 / aspect)
     };
-    elements.logoName.textContent = state.logo.name;
+    clampLogo(logo);
+    state.logos.push(logo);
+    state.selectedLogoId = logo.id;
     elements.logoEditor.hidden = false;
+    renderLogoLayers();
     if (state.currentTexture) await renderLogoComposite(true);
-    else drawLogoPreview();
-    setStatus("Logo uploaded. Adjust its position and size on the texture preview.");
+    else await renderLogoEditor();
+    setStatus("Logo added. Drag it on the preview or use the size slider.");
   } catch (error) {
     setStatus(error.message || "Logo upload failed.", true);
   } finally {
     elements.logoUpload.disabled = false;
-    elements.logoUpload.textContent = "Upload another logo";
+    elements.logoUpload.textContent = state.logos.length ? "Add another logo" : "Add logo";
     elements.logoInput.value = "";
   }
 }
 
-function updateLogoPlacement() {
-  if (!state.logo) return;
-  state.logo.x = Number(elements.logoX.value);
-  state.logo.y = Number(elements.logoY.value);
-  state.logo.size = Number(elements.logoSize.value);
+function selectedLogo() {
+  return state.logos.find((logo) => logo.id === state.selectedLogoId) || null;
+}
+
+function logoMaxSize(logo) {
+  const aspect = logo.image.naturalHeight / logo.image.naturalWidth || 1;
+  return Math.max(1, Math.min(45, 88 / aspect));
+}
+
+function clampLogo(logo) {
+  const aspect = logo.image.naturalHeight / logo.image.naturalWidth || 1;
+  logo.size = Math.max(1, Math.min(logoMaxSize(logo), Number(logo.size) || 18));
+  const halfWidth = logo.size / 2;
+  const halfHeight = logo.size * aspect / 2;
+  logo.x = Math.max(halfWidth, Math.min(100 - halfWidth, Number(logo.x) || 50));
+  logo.y = Math.max(halfHeight, Math.min(100 - halfHeight, Number(logo.y) || 50));
+}
+
+function selectLogo(id) {
+  if (!state.logos.some((logo) => logo.id === id)) return;
+  state.selectedLogoId = id;
+  renderLogoLayers();
+  renderLogoEditor();
+}
+
+function renderLogoLayers() {
+  elements.logoLayerList.innerHTML = state.logos.map((logo, index) => `
+    <button class="logo-layer${logo.id === state.selectedLogoId ? " is-selected" : ""}" type="button" data-logo-id="${logo.id}" aria-pressed="${logo.id === state.selectedLogoId}">
+      <img src="${logo.dataUrl}" alt=""><span>${escapeMarkup(logo.name || `Logo ${index + 1}`)}</span>
+    </button>`).join("");
+  elements.logoLayerList.querySelectorAll("[data-logo-id]").forEach((button) => button.addEventListener("click", () => selectLogo(button.dataset.logoId)));
+  const logo = selectedLogo();
+  elements.logoName.textContent = logo?.name || "Selected logo";
+  elements.logoRemove.disabled = !logo;
+  if (logo) {
+    elements.logoSize.max = String(logoMaxSize(logo));
+    elements.logoSize.value = String(logo.size);
+  }
+}
+
+function updateLogoSize() {
+  const logo = selectedLogo();
+  if (!logo) return;
+  logo.size = Number(elements.logoSize.value);
+  clampLogo(logo);
+  elements.logoSize.value = String(logo.size);
+  renderLogoEditor();
+  scheduleLogoComposite();
+}
+
+function scheduleLogoComposite() {
   clearTimeout(logoRenderTimer);
   logoRenderTimer = setTimeout(() => {
     if (state.currentTexture) renderLogoComposite(true).catch((error) => setStatus(error.message, true));
-    else drawLogoPreview();
-  }, 120);
+  }, 170);
 }
 
 async function removeLogo() {
-  state.logo = null;
-  elements.logoEditor.hidden = true;
-  elements.logoUpload.textContent = "Upload logo";
+  const index = state.logos.findIndex((logo) => logo.id === state.selectedLogoId);
+  if (index < 0) return;
+  state.logos.splice(index, 1);
+  state.selectedLogoId = state.logos[Math.min(index, state.logos.length - 1)]?.id || null;
+  elements.logoEditor.hidden = state.logos.length === 0;
+  elements.logoUpload.textContent = state.logos.length ? "Add another logo" : "Add logo";
+  renderLogoLayers();
   if (state.currentTexture) {
-    state.currentTexture.dataUrl = state.currentTexture.baseDataUrl;
-    try { await applyTexture(state.model.designMaterial, state.currentTexture.baseDataUrl); } catch { /* Status remains usable. */ }
+    try { await renderLogoComposite(true); } catch (error) { setStatus(error.message || "Logo could not be removed.", true); }
+  } else {
+    await renderLogoEditor();
   }
-  drawLogoPreview();
+  setStatus("Logo removed from this design.");
 }
 
 async function renderLogoComposite(applyToModel) {
@@ -774,46 +838,121 @@ async function renderLogoComposite(applyToModel) {
   if (sequence !== logoRenderSequence) return null;
   state.currentTexture.dataUrl = dataUrl;
   if (applyToModel) await applyTexture(state.model.designMaterial, dataUrl);
+  await renderLogoEditor();
   return dataUrl;
 }
 
 async function composeCurrentTexture(type = "image/png", quality) {
   if (!state.currentTexture?.baseDataUrl) return null;
-  const base = await loadImage(state.currentTexture.baseDataUrl);
+  const base = state.currentTexture.baseImage || await loadImage(state.currentTexture.baseDataUrl);
+  state.currentTexture.baseImage = base;
   const canvas = document.createElement("canvas");
   canvas.width = base.naturalWidth || base.width;
   canvas.height = base.naturalHeight || base.height;
   const context = canvas.getContext("2d");
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
   context.drawImage(base, 0, 0, canvas.width, canvas.height);
-  if (state.logo?.image) {
-    const aspect = state.logo.image.naturalHeight / state.logo.image.naturalWidth || 1;
-    const width = canvas.width * (state.logo.size / 100);
+  for (const logo of state.logos) {
+    clampLogo(logo);
+    const aspect = logo.image.naturalHeight / logo.image.naturalWidth || 1;
+    const width = canvas.width * (logo.size / 100);
     const height = width * aspect;
-    const centerX = canvas.width * (state.logo.x / 100);
-    const centerY = canvas.height * (state.logo.y / 100);
-    context.drawImage(state.logo.image, centerX - width / 2, centerY - height / 2, width, height);
+    const centerX = canvas.width * (logo.x / 100);
+    const centerY = canvas.height * (logo.y / 100);
+    context.drawImage(logo.image, centerX - width / 2, centerY - height / 2, width, height);
   }
-  drawCanvasPreview(canvas);
   return canvas.toDataURL(type, quality);
 }
 
-function drawCanvasPreview(source) {
-  const context = elements.logoPreview.getContext("2d");
-  context.clearRect(0, 0, elements.logoPreview.width, elements.logoPreview.height);
-  context.fillStyle = "#fff";
-  context.fillRect(0, 0, elements.logoPreview.width, elements.logoPreview.height);
-  context.drawImage(source, 0, 0, elements.logoPreview.width, elements.logoPreview.height);
+function getLogoRect(logo, width = elements.logoPreview.width, height = elements.logoPreview.height) {
+  const aspect = logo.image.naturalHeight / logo.image.naturalWidth || 1;
+  const logoWidth = width * (logo.size / 100);
+  const logoHeight = logoWidth * aspect;
+  const centerX = width * (logo.x / 100);
+  const centerY = height * (logo.y / 100);
+  return { x: centerX - logoWidth / 2, y: centerY - logoHeight / 2, width: logoWidth, height: logoHeight, centerX, centerY };
 }
 
-function drawLogoPreview() {
+async function renderLogoEditor() {
   const context = elements.logoPreview.getContext("2d");
   context.clearRect(0, 0, elements.logoPreview.width, elements.logoPreview.height);
   context.fillStyle = "#f4f3ef";
   context.fillRect(0, 0, elements.logoPreview.width, elements.logoPreview.height);
-  context.fillStyle = "#8a8983";
-  context.font = "12px system-ui";
-  context.textAlign = "center";
-  context.fillText(state.currentTexture ? "Loading preview…" : "Open or generate a design to position the logo", 160, 160);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  if (state.currentTexture?.baseDataUrl) {
+    try {
+      const base = state.currentTexture.baseImage || await loadImage(state.currentTexture.baseDataUrl);
+      state.currentTexture.baseImage = base;
+      context.drawImage(base, 0, 0, elements.logoPreview.width, elements.logoPreview.height);
+    } catch { /* Keep the neutral preview background. */ }
+  }
+  for (const logo of state.logos) {
+    const rect = getLogoRect(logo);
+    context.drawImage(logo.image, rect.x, rect.y, rect.width, rect.height);
+    if (logo.id === state.selectedLogoId) {
+      context.save();
+      context.strokeStyle = "rgba(255,255,255,.96)";
+      context.lineWidth = 7;
+      context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+      context.strokeStyle = "#171716";
+      context.lineWidth = 3;
+      context.setLineDash([12, 9]);
+      context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+      context.restore();
+    }
+  }
+  if (!state.currentTexture && state.logos.length === 0) {
+    context.fillStyle = "#8a8983";
+    context.font = "32px system-ui";
+    context.textAlign = "center";
+    context.fillText("Open or generate a design first", elements.logoPreview.width / 2, elements.logoPreview.height / 2);
+  }
+}
+
+function previewPoint(event) {
+  const bounds = elements.logoPreview.getBoundingClientRect();
+  return {
+    x: (event.clientX - bounds.left) * (elements.logoPreview.width / bounds.width),
+    y: (event.clientY - bounds.top) * (elements.logoPreview.height / bounds.height)
+  };
+}
+
+function beginLogoDrag(event) {
+  const point = previewPoint(event);
+  const logo = [...state.logos].reverse().find((item) => {
+    const rect = getLogoRect(item);
+    return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
+  });
+  if (!logo) return;
+  selectLogo(logo.id);
+  const rect = getLogoRect(logo);
+  state.logoDrag = { id: logo.id, offsetX: point.x - rect.centerX, offsetY: point.y - rect.centerY };
+  elements.logoPreview.setPointerCapture(event.pointerId);
+  elements.logoPreview.classList.add("is-dragging");
+  event.preventDefault();
+}
+
+function moveLogoDrag(event) {
+  if (!state.logoDrag) return;
+  const logo = state.logos.find((item) => item.id === state.logoDrag.id);
+  if (!logo) return;
+  const point = previewPoint(event);
+  logo.x = ((point.x - state.logoDrag.offsetX) / elements.logoPreview.width) * 100;
+  logo.y = ((point.y - state.logoDrag.offsetY) / elements.logoPreview.height) * 100;
+  clampLogo(logo);
+  renderLogoEditor();
+  scheduleLogoComposite();
+  event.preventDefault();
+}
+
+function endLogoDrag(event) {
+  if (!state.logoDrag) return;
+  state.logoDrag = null;
+  elements.logoPreview.classList.remove("is-dragging");
+  if (elements.logoPreview.hasPointerCapture(event.pointerId)) elements.logoPreview.releasePointerCapture(event.pointerId);
+  scheduleLogoComposite();
 }
 
 function updateRequestState() {
@@ -834,24 +973,22 @@ async function submitDesignRequest() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         designId: state.currentTexture.id,
-        logoId: state.logo?.id || null,
+        logoId: state.logos[0]?.id || null,
+        logoIds: state.logos.map((logo) => logo.id),
         message,
         previewDataUrl,
-        placement: state.logo ? { x: state.logo.x, y: state.logo.y, size: state.logo.size, logoName: state.logo.name } : null
+        placement: { logos: state.logos.map((logo) => ({ id: logo.id, x: logo.x, y: logo.y, size: logo.size, logoName: logo.name })) }
       })
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Request could not be sent.");
     elements.requestMessage.value = "";
-    setStatus(payload.emailSent
-      ? `Request sent to ${payload.recipient}.`
-      : `Request saved. Your email app is opening a message to ${payload.recipient}.`);
-    if (!payload.emailSent && payload.mailtoUrl) window.location.href = payload.mailtoUrl;
+    setStatus("Request saved in the Vitalini admin workspace.");
     if (!elements.accountDrawer.hidden) await loadAccount();
   } catch (error) {
     setStatus(error.message || "Request could not be sent.", true);
   } finally {
-    elements.requestButton.textContent = "Request this design";
+    elements.requestButton.textContent = "Submit design request";
     updateRequestState();
   }
 }
@@ -886,14 +1023,6 @@ async function loadAccount() {
   } catch (error) {
     setStatus(error.message || "Account information is unavailable.", true);
   }
-}
-
-function downloadCurrentTexture() {
-  if (!state.currentTexture) return;
-  const anchor = document.createElement("a");
-  anchor.href = state.currentTexture.dataUrl;
-  anchor.download = `${state.model.id}-ai-design-${state.currentTexture.id}.png`;
-  anchor.click();
 }
 
 function blobToDataUrl(blob) {

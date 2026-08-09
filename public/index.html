@@ -144,13 +144,13 @@
               <div><h2>Add your logo</h2><p>Upload and position a logo directly on the current design.</p></div>
             </div>
             <input id="logoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
-            <button class="secondary-button" id="logoUploadButton" type="button">Upload logo</button>
+            <button class="secondary-button" id="logoUploadButton" type="button">Add logo</button>
             <div class="logo-editor" id="logoEditor" hidden>
-              <canvas id="logoPreview" width="320" height="320" aria-label="Texture and logo placement preview"></canvas>
-              <div class="logo-editor__meta"><span id="logoName">Logo</span><button id="logoRemoveButton" type="button">Remove</button></div>
-              <label class="range-field"><span>Horizontal position</span><input id="logoX" type="range" min="0" max="100" value="50" /></label>
-              <label class="range-field"><span>Vertical position</span><input id="logoY" type="range" min="0" max="100" value="50" /></label>
-              <label class="range-field"><span>Logo size</span><input id="logoSize" type="range" min="5" max="45" value="18" /></label>
+              <p class="logo-editor__hint">Select a logo, then drag it anywhere on the texture.</p>
+              <canvas id="logoPreview" width="960" height="960" aria-label="Drag logos on the texture placement preview"></canvas>
+              <div class="logo-layer-list" id="logoLayerList" aria-label="Uploaded logos"></div>
+              <div class="logo-editor__meta"><span id="logoName">Selected logo</span><button id="logoRemoveButton" type="button">Remove selected</button></div>
+              <label class="range-field range-field--size"><span>Selected logo size</span><input id="logoSize" type="range" min="1" max="45" value="18" /></label>
             </div>
           </section>
 
@@ -163,12 +163,8 @@
               <span class="sr-only">Message for Vitalini</span>
               <textarea id="requestMessage" maxlength="2000" placeholder="Tell the Vitalini team what to refine, where the logos should sit, and any production notes…"></textarea>
             </label>
-            <button class="request-button" id="requestButton" type="button" disabled>Request this design</button>
-            <p class="request-note">The current preview, account details, message, and a private link to your creations will be included.</p>
-          </section>
-
-          <section class="control-section export-section">
-            <button class="download-button" id="downloadButton" type="button" disabled>Download current texture</button>
+            <button class="request-button" id="requestButton" type="button" disabled>Submit design request</button>
+            <p class="request-note">The request, preview, message, and your complete client profile stay inside the Vitalini admin workspace.</p>
           </section>
         </div>
 
@@ -198,6 +194,6 @@
 
     <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
     <script src="./config.js"></script>
-    <script type="module" src="./app.js?v=20260809-1"></script>
+    <script type="module" src="./app.js?v=20260809-2"></script>
   </body>
 </html>
