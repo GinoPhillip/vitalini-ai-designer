@@ -7,7 +7,7 @@
     <meta name="description" content="Design a one-of-one Vitalini jacket with AI and preview it live in 3D." />
     <title>Vitalini Custom Designer</title>
     <link rel="preconnect" href="https://static.sketchfab.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260808-1" />
+    <link rel="stylesheet" href="./styles.css?v=20260809-1" />
   </head>
   <body class="is-auth-loading">
     <section class="auth-gate" id="authGate" aria-label="Client access">
@@ -28,7 +28,7 @@
           <label><span>Account creation code</span><input id="registerCode" autocomplete="one-time-code" placeholder="VTLN-XXXX-XXXX-XXXX" required /></label>
           <label><span>Username</span><input id="registerUsername" autocomplete="username" minlength="3" maxlength="32" required /></label>
           <label><span>Email</span><input id="registerEmail" type="email" autocomplete="email" required /></label>
-          <label><span>Password</span><input id="registerPassword" type="password" autocomplete="new-password" minlength="10" required /></label>
+          <label><span>Password</span><input id="registerPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
           <button class="auth-submit" type="submit">Create approved account</button>
         </form>
         <p class="auth-error" id="authError" role="alert"></p>
@@ -198,6 +198,6 @@
 
     <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
     <script src="./config.js"></script>
-    <script type="module" src="./app.js?v=20260808-1"></script>
+    <script type="module" src="./app.js?v=20260809-1"></script>
   </body>
 </html>

@@ -11,7 +11,8 @@ const UUID_RE = /^[0-9a-f-]{36}$/i;
 const LEGACY_USER_ID_RE = /^[a-zA-Z0-9_-]{16,80}$/;
 const USERNAME_RE = /^[a-zA-Z0-9_.-]{3,32}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PASSWORD_ITERATIONS = 210_000;
+// Kept within the Worker CPU budget; a server-only pepper protects hashes if D1 is exposed.
+const PASSWORD_ITERATIONS = 60_000;
 const USER_SESSION_DAYS = 30;
 const ADMIN_SESSION_HOURS = 12;
 const DAILY_GENERATION_LIMIT = 20;
@@ -104,14 +105,15 @@ async function registerUser(request, env) {
   if (payload instanceof Response) return payload;
 
   const inviteCode = normalizeInviteCode(payload.inviteCode);
-  const username = String(payload.username || "").trim();
+  const username = normalizeUsername(payload.username);
   const email = String(payload.email || "").trim().toLowerCase();
   const password = String(payload.password || "");
   const legacyDesignerId = String(payload.legacyDesignerId || "");
   if (!inviteCode) return json({ error: "Enter a valid account creation code." }, 400);
-  if (!USERNAME_RE.test(username)) return json({ error: "Username must be 3–32 letters, numbers, dots, dashes, or underscores." }, 400);
+  if (!USERNAME_RE.test(username)) return json({ error: "Username must be 3–32 letters or numbers. Spaces become underscores." }, 400);
   if (!EMAIL_RE.test(email) || email.length > 254) return json({ error: "Enter a valid email address." }, 400);
-  if (password.length < 10 || password.length > 128) return json({ error: "Password must be 10–128 characters." }, 400);
+  if (password.length < 6 || password.length > 128) return json({ error: "Password must be 6–128 characters." }, 400);
+  if (!env.PASSWORD_PEPPER) return json({ error: "Account security is not configured." }, 503);
 
   const duplicate = await env.DB.prepare("SELECT id FROM users WHERE username = ? OR email = ?").bind(username, email).first();
   if (duplicate) return json({ error: "That username or email is already registered." }, 409);
@@ -124,21 +126,23 @@ async function registerUser(request, env) {
   if (!invite) return json({ error: "That account creation code is invalid, expired, or already used." }, 400);
 
   const userId = crypto.randomUUID();
-  const credentials = await hashPassword(password);
+  let userInserted = false;
   try {
+    const credentials = await hashPassword(password, env.PASSWORD_PEPPER);
     await env.DB.prepare(
       "INSERT INTO users (id, username, email, password_hash, password_salt, password_iterations, status, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?, 'approved', ?, ?)"
     ).bind(userId, username, email, credentials.hash, credentials.salt, credentials.iterations, now, now).run();
+    userInserted = true;
+    if (LEGACY_USER_ID_RE.test(legacyDesignerId)) {
+      await env.DB.prepare("UPDATE designs SET user_id = ? WHERE user_id = ?").bind(userId, legacyDesignerId).run();
+    }
+    const token = await createUserSession(env, userId);
+    return json({ token, user: { id: userId, username, email, status: "approved" } }, 201);
   } catch (error) {
+    if (userInserted) await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(userId).run().catch(() => null);
     await env.DB.prepare("UPDATE invite_codes SET used_count = MAX(used_count - 1, 0) WHERE id = ?").bind(invite.id).run();
     throw error;
   }
-
-  if (LEGACY_USER_ID_RE.test(legacyDesignerId)) {
-    await env.DB.prepare("UPDATE designs SET user_id = ? WHERE user_id = ?").bind(userId, legacyDesignerId).run();
-  }
-  const token = await createUserSession(env, userId);
-  return json({ token, user: { id: userId, username, email, status: "approved" } }, 201);
 }
 
 async function loginUser(request, env) {
@@ -152,7 +156,7 @@ async function loginUser(request, env) {
   const user = await env.DB.prepare(
     "SELECT id, username, email, password_hash, password_salt, password_iterations, status FROM users WHERE username = ? OR email = ?"
   ).bind(identity, identity.toLowerCase()).first();
-  const valid = user && await verifyPassword(password, user.password_salt, user.password_hash, user.password_iterations);
+  const valid = user && env.PASSWORD_PEPPER && await verifyPassword(password, env.PASSWORD_PEPPER, user.password_salt, user.password_hash, user.password_iterations);
   if (!valid) return json({ error: "Incorrect username, email, or password." }, 401);
   if (user.status !== "approved") return json({ error: "This account is not currently approved." }, 403);
 
@@ -668,8 +672,8 @@ function bearerToken(request) {
   return header.startsWith("Bearer ") ? header.slice(7).trim() : "";
 }
 
-async function hashPassword(password, salt = randomToken(16), iterations = PASSWORD_ITERATIONS) {
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]);
+async function hashPassword(password, pepper, salt = randomToken(16), iterations = PASSWORD_ITERATIONS) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(`${password}\u0000${pepper}`), "PBKDF2", false, ["deriveBits"]);
   const bits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", salt: base64UrlToBytes(salt), iterations, hash: "SHA-256" },
     key,
@@ -678,8 +682,8 @@ async function hashPassword(password, salt = randomToken(16), iterations = PASSW
   return { hash: bytesToBase64Url(new Uint8Array(bits)), salt, iterations };
 }
 
-async function verifyPassword(password, salt, expectedHash, iterations) {
-  const actual = await hashPassword(password, salt, Number(iterations));
+async function verifyPassword(password, pepper, salt, expectedHash, iterations) {
+  const actual = await hashPassword(password, pepper, salt, Number(iterations));
   return timingSafeEqualBytes(base64UrlToBytes(actual.hash), base64UrlToBytes(expectedHash));
 }
 
@@ -727,6 +731,10 @@ function makeInviteCode() {
 
 export function normalizeInviteCode(value) {
   return String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+export function normalizeUsername(value) {
+  return String(value || "").trim().replace(/\s+/g, "_");
 }
 
 function parseImageDataUrl(value) {
