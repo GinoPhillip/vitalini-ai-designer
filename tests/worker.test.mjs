@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { base64ToBytes, getRateLimitKey, isOriginAllowed, normalizeRenderPreset } from "../src/index.js";
+import { base64ToBytes, getRateLimitKey, isOriginAllowed, normalizeInviteCode, normalizeRenderPreset } from "../src/index.js";
 
 test("same-origin and configured origins are accepted", () => {
   assert.equal(isOriginAllowed("https://studio.example.com", "https://studio.example.com", ""), true);
@@ -28,4 +28,9 @@ test("generation presets map to server-controlled quality and size", () => {
   assert.equal(normalizeRenderPreset("low"), null);
   assert.equal(normalizeRenderPreset("medium"), null);
   assert.equal(normalizeRenderPreset("auto"), null);
+});
+
+test("account creation codes normalize consistently", () => {
+  assert.equal(normalizeInviteCode("vtln-abcd-2345-efgh"), "VTLNABCD2345EFGH");
+  assert.equal(normalizeInviteCode("  VTLN ABCD 2345 EFGH  "), "VTLNABCD2345EFGH");
 });

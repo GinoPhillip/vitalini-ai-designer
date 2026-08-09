@@ -7,10 +7,35 @@
     <meta name="description" content="Design a one-of-one Vitalini jacket with AI and preview it live in 3D." />
     <title>Vitalini Custom Designer</title>
     <link rel="preconnect" href="https://static.sketchfab.com" />
-    <link rel="stylesheet" href="./styles.css?v=20260721-3" />
+    <link rel="stylesheet" href="./styles.css?v=20260808-1" />
   </head>
-  <body>
-    <main class="app-shell">
+  <body class="is-auth-loading">
+    <section class="auth-gate" id="authGate" aria-label="Client access">
+      <div class="auth-card">
+        <img class="auth-card__logo" src="./assets/vitalini-logo.png" alt="Vitalini" />
+        <div class="auth-tabs" role="tablist" aria-label="Account access">
+          <button class="is-active" id="loginTab" type="button" role="tab" aria-selected="true">Sign in</button>
+          <button id="registerTab" type="button" role="tab" aria-selected="false">Create account</button>
+        </div>
+        <form class="auth-form" id="loginForm">
+          <div class="auth-intro"><h1>Welcome back</h1><p>Sign in to your approved Vitalini client workspace.</p></div>
+          <label><span>Username or email</span><input id="loginIdentity" autocomplete="username" required /></label>
+          <label><span>Password</span><input id="loginPassword" type="password" autocomplete="current-password" required /></label>
+          <button class="auth-submit" type="submit">Sign in</button>
+        </form>
+        <form class="auth-form" id="registerForm" hidden>
+          <div class="auth-intro"><h1>Create your workspace</h1><p>An account creation code from Vitalini is required.</p></div>
+          <label><span>Account creation code</span><input id="registerCode" autocomplete="one-time-code" placeholder="VTLN-XXXX-XXXX-XXXX" required /></label>
+          <label><span>Username</span><input id="registerUsername" autocomplete="username" minlength="3" maxlength="32" required /></label>
+          <label><span>Email</span><input id="registerEmail" type="email" autocomplete="email" required /></label>
+          <label><span>Password</span><input id="registerPassword" type="password" autocomplete="new-password" minlength="10" required /></label>
+          <button class="auth-submit" type="submit">Create approved account</button>
+        </form>
+        <p class="auth-error" id="authError" role="alert"></p>
+      </div>
+    </section>
+
+    <main class="app-shell" id="appShell" hidden>
       <section class="stage" aria-label="Interactive 3D jacket preview">
         <div class="stage__ambient" aria-hidden="true"></div>
         <iframe
@@ -33,6 +58,9 @@
       <aside class="studio" aria-label="Design controls">
         <header class="studio__header">
           <img src="./assets/vitalini-logo.png" alt="Vitalini" />
+          <button class="account-button" id="accountButton" type="button" aria-label="Open account" aria-expanded="false">
+            <span id="accountInitial">V</span>
+          </button>
         </header>
 
         <div class="studio__content">
@@ -111,6 +139,34 @@
             <div id="materialControls" class="material-controls"></div>
           </section>
 
+          <section class="control-section logo-section" id="logoSection">
+            <div class="section-heading section-heading--compact">
+              <div><h2>Add your logo</h2><p>Upload and position a logo directly on the current design.</p></div>
+            </div>
+            <input id="logoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+            <button class="secondary-button" id="logoUploadButton" type="button">Upload logo</button>
+            <div class="logo-editor" id="logoEditor" hidden>
+              <canvas id="logoPreview" width="320" height="320" aria-label="Texture and logo placement preview"></canvas>
+              <div class="logo-editor__meta"><span id="logoName">Logo</span><button id="logoRemoveButton" type="button">Remove</button></div>
+              <label class="range-field"><span>Horizontal position</span><input id="logoX" type="range" min="0" max="100" value="50" /></label>
+              <label class="range-field"><span>Vertical position</span><input id="logoY" type="range" min="0" max="100" value="50" /></label>
+              <label class="range-field"><span>Logo size</span><input id="logoSize" type="range" min="5" max="45" value="18" /></label>
+            </div>
+          </section>
+
+          <section class="control-section request-section">
+            <div class="section-heading section-heading--compact">
+              <div><h2>Send to Vitalini</h2><p>Your AI result remains a draft until the Vitalini graphic team finalizes it.</p></div>
+              <span class="draft-badge" id="designStatus">Draft</span>
+            </div>
+            <label class="request-field">
+              <span class="sr-only">Message for Vitalini</span>
+              <textarea id="requestMessage" maxlength="2000" placeholder="Tell the Vitalini team what to refine, where the logos should sit, and any production notes…"></textarea>
+            </label>
+            <button class="request-button" id="requestButton" type="button" disabled>Request this design</button>
+            <p class="request-note">The current preview, account details, message, and a private link to your creations will be included.</p>
+          </section>
+
           <section class="control-section export-section">
             <button class="download-button" id="downloadButton" type="button" disabled>Download current texture</button>
           </section>
@@ -121,8 +177,27 @@
       </aside>
     </main>
 
+    <aside class="account-drawer" id="accountDrawer" aria-label="Account details" hidden>
+      <div class="account-drawer__backdrop" data-close-account></div>
+      <div class="account-drawer__panel">
+        <button class="account-drawer__close" type="button" data-close-account aria-label="Close account">×</button>
+        <img src="./assets/vitalini-logo.png" alt="Vitalini" />
+        <p class="account-kicker">Approved client</p>
+        <h2 id="accountUsername">Account</h2>
+        <p id="accountEmail"></p>
+        <div class="account-stats">
+          <div><strong id="accountUsage">0 / 20</strong><span>Generations today</span></div>
+          <div><strong id="accountDesigns">0</strong><span>Saved designs</span></div>
+          <div><strong id="accountLogos">0</strong><span>Uploaded logos</span></div>
+          <div><strong id="accountRequests">0</strong><span>Requests</span></div>
+        </div>
+        <div class="account-request-list" id="accountRequestList"></div>
+        <button class="secondary-button" id="logoutButton" type="button">Sign out</button>
+      </div>
+    </aside>
+
     <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
     <script src="./config.js"></script>
-    <script type="module" src="./app.js?v=20260721-3"></script>
+    <script type="module" src="./app.js?v=20260808-1"></script>
   </body>
 </html>
