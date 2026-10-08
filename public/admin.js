@@ -60,6 +60,9 @@ async function login(event) {
     elements.login.hidden = true;
     elements.shell.hidden = false;
     await loadDashboard();
+    const params = new URLSearchParams(location.search);
+    if (params.get("request")) await openRequest(params.get("request"));
+    else if (params.get("user")) await openUser(params.get("user"));
   } catch (error) { elements.loginError.textContent = error.message; }
   finally { button.disabled = false; }
 }
@@ -174,6 +177,8 @@ function renderRequestDetail(payload) {
   document.querySelector("#requestDetailStatus").innerHTML = statusOptions(request.status);
   document.querySelector("#requestDetailModel").textContent = `${request.design.modelId} · ${request.design.status}`;
   document.querySelector("#requestDetailPrompt").textContent = request.design.prompt;
+  const trims = Array.isArray(request.placement?.trimColors) ? request.placement.trimColors : [];
+  document.querySelector("#requestDetailTrims").innerHTML = trims.filter((trim) => /^#[0-9a-f]{6}$/i.test(trim.color)).map((trim) => `<span><i style="background:${trim.color}"></i>${escapeHtml(trim.label)} <b>${escapeHtml(trim.color)}</b></span>`).join("");
   setPrivateImage(document.querySelector("#requestDetailPreview"), request.previewUrl);
   setPrivateImage(document.querySelector("#requestDetailDesign"), request.design.imageUrl);
 

@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { base64ToBytes, getRateLimitKey, isOriginAllowed, normalizeInviteCode, normalizeRenderPreset, normalizeUsername } from "../src/index.js";
+import worker, { base64ToBytes, getRateLimitKey, isOriginAllowed, normalizeInviteCode, normalizeRenderPreset, normalizeUsername } from "../src/index.js";
+
+test("image model defaults to Sunburst and honors the server override", async () => {
+  const request = new Request("https://studio.example.com/api/health");
+  const defaults = await worker.fetch(request, {});
+  assert.equal((await defaults.json()).imageModel, "gpt-image-2.5-sunburst");
+  const override = await worker.fetch(request, { OPENAI_IMAGE_MODEL: "pinned-test-model" });
+  assert.equal((await override.json()).imageModel, "pinned-test-model");
+});
 
 test("same-origin and configured origins are accepted", () => {
   assert.equal(isOriginAllowed("https://studio.example.com", "https://studio.example.com", ""), true);

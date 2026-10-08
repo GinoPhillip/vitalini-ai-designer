@@ -36,7 +36,7 @@
     }
   ],
   "vars": {
-    "OPENAI_IMAGE_MODEL": "gpt-image-2",
+    "OPENAI_IMAGE_MODEL": "gpt-image-2.5-sunburst",
     "ALLOWED_ORIGINS": "https://ginophillip.github.io"
   }
 }
