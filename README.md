@@ -1,8 +1,16 @@
 # Vitalini AI Designer
 
-A renewed version of the original Sketchfab jacket designer. It serves the responsive frontend and API from one Cloudflare Worker, generates UV textures with OpenAI's `gpt-image-2`, projects them onto the correct Sketchfab material, and stores customer history in Cloudflare D1 + R2.
+A renewed version of the original Sketchfab jacket designer. It serves the responsive frontend and API from one Cloudflare Worker, generates UV textures with OpenAI's `gpt-image-2.5-sunburst`, projects them onto the correct Sketchfab material, and stores customer history in Cloudflare D1 + R2. Generation stays at medium quality and 1536×1536 with the original UV-preserving prompt. The previous GPT Image 2 per-image estimate does not guarantee GPT Image 2.5 costs; actual usage determines billing.
 
 The frontend also deploys from `public/` to GitHub Pages. The Worker provides invite-only client accounts, private design/logo/request files, a 20-generation daily account limit, and the administrator workflow at `public/admin.html`.
+
+## Custom Studio interface
+
+The client studio uses a four-step workspace: Design, Details, Logos, and Review. The jacket stays visible beside the active tool, with a focus-view toggle and the existing saved-design navigation. Review shows the current composite and chosen trim colors; those color choices are included in the internal design request and displayed in admin. Logo placement supports pointer dragging, individual resizing/removal, and arrow-key movement (Shift for larger steps).
+
+The background is drawn procedurally by `public/terrain.js`: different-size Vitalini microprint wordmarks form mountain ridges, with stronger sage ink, subtle grain and a slow light effect. The model-caption area stays clear. There are no topographical lines. It pauses when hidden and respects reduced-motion preferences. The previous branded background image is no longer used. The client interface includes a persistent English/Italian language selector; user-authored text is never translated.
+
+For isolated interface testing, run `npm run preview:ui` and open `http://127.0.0.1:4173`. Any nonempty sign-in values enter the fixture workspace. This local server uses placeholder designs and simulates generation, uploads, and requests without contacting production or OpenAI. It is outside `public/` and is never deployed. To test the real backend, use the regular Wrangler development workflow instead.
 
 ## Included model mappings
 

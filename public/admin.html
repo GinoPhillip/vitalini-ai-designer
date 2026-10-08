@@ -6,10 +6,11 @@
     <meta name="theme-color" content="#f4f2ed" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Vitalini Client Portal Admin</title>
-    <link rel="stylesheet" href="./admin.css?v=20260809-2" />
+    <link rel="stylesheet" href="./admin.css?v=20261008-1" />
   </head>
   <body>
     <section class="admin-login" id="adminLogin">
+      <canvas class="terrain-canvas" data-terrain aria-hidden="true"></canvas>
       <form class="admin-login__card" id="adminLoginForm">
         <img src="./assets/vitalini-logo.png" alt="Vitalini" />
         <p>Client portal administration</p>
@@ -81,7 +82,7 @@
                 <figure><img id="requestDetailPreview" alt="Submitted design request preview"><figcaption>Submitted request</figcaption></figure>
                 <figure><img id="requestDetailDesign" alt="Original generated design"><figcaption>Original generated texture</figcaption></figure>
               </div>
-              <div class="request-focus__design"><strong id="requestDetailModel"></strong><p id="requestDetailPrompt"></p></div>
+              <div class="request-focus__design"><strong id="requestDetailModel"></strong><p id="requestDetailPrompt"></p><div id="requestDetailTrims" class="request-trims"></div></div>
             </section>
             <div class="profile-divider"><span>Complete client profile</span><h2 id="requestProfileName">Client</h2><p id="requestProfileEmail"></p></div>
             <div class="metric-grid metric-grid--small">
@@ -114,6 +115,7 @@
     </main>
 
     <script src="./config.js"></script>
-    <script type="module" src="./admin.js?v=20260809-2"></script>
+    <script type="module" src="./terrain.js?v=20261008-1"></script>
+    <script type="module" src="./admin.js?v=20261008-1"></script>
   </body>
 </html>

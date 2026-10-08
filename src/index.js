@@ -37,7 +37,7 @@ export default {
     try {
       let response;
       if (request.method === "GET" && url.pathname === "/api/health") {
-        response = json({ ok: true, imageModel: env.OPENAI_IMAGE_MODEL || "gpt-image-2" });
+        response = json({ ok: true, imageModel: env.OPENAI_IMAGE_MODEL || "gpt-image-2.5-sunburst" });
       } else if (request.method === "POST" && url.pathname === "/api/auth/register") {
         response = await registerUser(request, env);
       } else if (request.method === "POST" && url.pathname === "/api/auth/login") {
@@ -263,7 +263,7 @@ async function generateDesign(request, env, user) {
   if (!reservation) return json({ error: `Daily generation limit reached (${DAILY_GENERATION_LIMIT}/day).` }, 429);
 
   const form = new FormData();
-  form.append("model", env.OPENAI_IMAGE_MODEL || "gpt-image-2");
+  form.append("model", env.OPENAI_IMAGE_MODEL || "gpt-image-2.5-sunburst");
   form.append("image[]", await baseResponse.blob(), `${modelId}-uv.png`);
   form.append("prompt", `${model.texturePrompt}\n\nDesign direction from the customer: ${prompt}`);
   form.append("size", renderPreset.size);

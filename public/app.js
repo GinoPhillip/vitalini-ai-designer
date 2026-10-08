@@ -1,8 +1,13 @@
+import { t } from "./language.js?v=20261008-2";
+
 const API_BASE = (window.VITALINI_API_BASE || "").replace(/\/$/, "");
 const SESSION_KEY = "vitalini_client_session_v1";
 let sessionToken = localStorage.getItem(SESSION_KEY) || "";
 let logoRenderTimer = null;
 let logoRenderSequence = 0;
+let generationClock = null;
+let generationStartedAt = 0;
+let historySequence = 0;
 
 const CATALOG = {
   Jackets: [
@@ -85,6 +90,7 @@ const elements = {
 
 const state = {
   api: null,
+  viewerReady: false,
   model: null,
   materials: new Map(),
   history: [],
@@ -98,7 +104,11 @@ const state = {
   initialized: false,
   generating: false,
   bootSequence: 0,
-  statusTimer: null
+  statusTimer: null,
+  activeTab: "design",
+  applyingHistory: false,
+  historyLoading: false,
+  submittingRequest: false
 };
 
 const designerId = getDesignerId();
@@ -136,6 +146,15 @@ function wireAuthentication() {
   elements.registerTab.addEventListener("click", () => showAuth("register"));
   elements.loginForm.addEventListener("submit", login);
   elements.registerForm.addEventListener("submit", register);
+  [elements.loginTab, elements.registerTab].forEach((tab, index, tabs) => {
+    tab.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      event.preventDefault();
+      const next = tabs[1 - index];
+      next.click();
+      next.focus();
+    });
+  });
   elements.registerUsername.addEventListener("input", () => {
     const normalized = elements.registerUsername.value.replace(/\s/g, "_");
     if (normalized !== elements.registerUsername.value) elements.registerUsername.value = normalized;
@@ -152,6 +171,8 @@ function showAuth(mode) {
   elements.registerTab.classList.toggle("is-active", registering);
   elements.loginTab.setAttribute("aria-selected", String(!registering));
   elements.registerTab.setAttribute("aria-selected", String(registering));
+  elements.loginTab.tabIndex = registering ? -1 : 0;
+  elements.registerTab.tabIndex = registering ? 0 : -1;
   elements.authError.textContent = "";
   document.body.classList.remove("is-auth-loading");
 }
@@ -208,7 +229,7 @@ async function register(event) {
 function setAuthBusy(form, busy) {
   form.querySelectorAll("input, button").forEach((control) => { control.disabled = busy; });
   const submit = form.querySelector("button[type='submit']");
-  if (submit) submit.textContent = busy ? "Please wait…" : form === elements.loginForm ? "Sign in" : "Create approved account";
+  if (submit) submit.textContent = busy ? "Opening your workspace…" : form === elements.loginForm ? "Enter the studio ↗" : "Create your workspace ↗";
 }
 
 function saveSession(token) {
@@ -260,6 +281,8 @@ function initialize() {
   elements.logoPreview.addEventListener("pointermove", moveLogoDrag);
   elements.logoPreview.addEventListener("pointerup", endLogoDrag);
   elements.logoPreview.addEventListener("pointercancel", endLogoDrag);
+  elements.logoPreview.addEventListener("keydown", moveLogoWithKeyboard);
+  wireStudioWorkflow();
   elements.requestMessage.addEventListener("input", updateRequestState);
   elements.requestButton.addEventListener("click", submitDesignRequest);
   elements.accountButton.addEventListener("click", openAccount);
@@ -280,10 +303,97 @@ function initialize() {
     if (event.key === "Escape") {
       closeColorPickers();
       closeSelectPickers();
+      if (!elements.accountDrawer.hidden) closeAccount();
+      if (elements.appShell.classList.contains("is-focused")) toggleFocusView(false);
+    }
+    if (event.key === "Tab" && !elements.accountDrawer.hidden) trapAccountFocus(event);
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !state.generating && elements.accountDrawer.hidden && !elements.generate.disabled) {
+      event.preventDefault();
+      generateDesign();
     }
   });
   updatePromptState();
   updateRequestState();
+}
+
+function wireStudioWorkflow() {
+  const tabs = [...document.querySelectorAll("[data-studio-tab]")];
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => setStudioTab(tab.dataset.studioTab));
+    tab.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      setStudioTab(tabs[nextIndex].dataset.studioTab);
+      tabs[nextIndex].focus();
+    });
+  });
+  document.querySelectorAll("[data-go-tab]").forEach((button) => button.addEventListener("click", () => {
+    setStudioTab(button.dataset.goTab);
+    document.querySelector(`#tab-${button.dataset.goTab}`).focus();
+  }));
+  document.querySelector("#focusButton").addEventListener("click", () => toggleFocusView());
+}
+
+function setStudioTab(name) {
+  if (!["design", "details", "logos", "review"].includes(name)) return;
+  state.activeTab = name;
+  closeColorPickers();
+  closeSelectPickers();
+  document.querySelectorAll("[data-studio-tab]").forEach((tab) => {
+    const selected = tab.dataset.studioTab === name;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+  });
+  document.querySelectorAll(".workflow-panel").forEach((panel) => { panel.hidden = panel.id !== `panel-${name}`; });
+  document.querySelector(".studio__content").scrollTop = 0;
+  if (name === "review") updateReview();
+  if (name === "logos") renderLogoEditor();
+}
+
+function toggleFocusView(force) {
+  const focused = typeof force === "boolean" ? force : !elements.appShell.classList.contains("is-focused");
+  elements.appShell.classList.toggle("is-focused", focused);
+  const button = document.querySelector("#focusButton");
+  button.setAttribute("aria-pressed", String(focused));
+  button.setAttribute("aria-label", focused ? "Return to design controls" : "Expand jacket preview");
+  button.querySelector("b").textContent = focused ? "Back to studio" : "Focus view";
+}
+
+function updateReview() {
+  document.querySelector("#reviewModel").textContent = state.model?.name || "Jacket";
+  const reviewPrompt = document.querySelector("#reviewPrompt");
+  reviewPrompt.toggleAttribute("data-no-translate", Boolean(state.currentTexture));
+  reviewPrompt.textContent = state.currentTexture?.prompt || "Generate a design, or revisit one of your saved ideas to get started.";
+  const image = document.querySelector("#reviewPreview");
+  image.hidden = !state.currentTexture;
+  if (state.currentTexture) image.src = state.currentTexture.dataUrl;
+  else image.removeAttribute("src");
+  document.querySelector("#reviewColors").innerHTML = [...elements.materialControls.querySelectorAll(".color-picker")].map((picker) =>
+    `<span><i style="--swatch:${picker.dataset.color}"></i>${escapeMarkup(picker.dataset.label)} · ${escapeMarkup(COLORS.find((entry) => entry[1] === picker.dataset.color)?.[0] || picker.dataset.color)}</span>`).join("");
+  document.querySelector("#stageDesignLabel").textContent = state.currentTexture ? "Your idea, brought to life." : "A fresh start.";
+}
+
+function moveLogoWithKeyboard(event) {
+  if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+  const logo = selectedLogo();
+  if (!logo) return;
+  event.preventDefault();
+  const delta = event.shiftKey ? 2 : .5;
+  if (event.key === "ArrowUp") logo.y -= delta;
+  if (event.key === "ArrowDown") logo.y += delta;
+  if (event.key === "ArrowLeft") logo.x -= delta;
+  if (event.key === "ArrowRight") logo.x += delta;
+  clampLogo(logo);
+  renderLogoEditor();
+  scheduleLogoComposite();
+}
+
+function trapAccountFocus(event) {
+  const focusable = [...elements.accountDrawer.querySelectorAll("button:not(:disabled), a[href], input:not(:disabled)")];
+  const first = focusable[0], last = focusable.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
 }
 
 function populateModels() {
@@ -294,17 +404,27 @@ function populateModels() {
 }
 
 function switchModel(modelId) {
+  if (state.generating || state.applyingHistory || state.submittingRequest) return;
   const model = (CATALOG[elements.type.value] || []).find((item) => item.id === modelId);
   if (!model) return;
   state.model = model;
   state.api = null;
+  state.viewerReady = false;
+  state.historyLoading = true;
+  elements.iframe.classList.remove("is-ready");
   state.materials.clear();
   state.history = [];
   state.historyIndex = -1;
+  historySequence++;
+  state.applyingHistory = false;
   state.currentTexture = null;
+  document.querySelector("#stageModelName").textContent = model.name;
+  elements.designStatus.textContent = "Draft";
+  elements.designStatus.classList.remove("is-executive");
   renderLogoEditor();
   renderMaterialControls();
   updateHistoryUI();
+  updateReview();
   bootViewer(model);
 }
 
@@ -355,7 +475,9 @@ function bootViewer(model) {
             console.warn("The default design texture could not be cleared", resetError);
           }
           if (sequence !== state.bootSequence) return;
-          elements.generate.disabled = !elements.prompt.value.trim();
+          state.viewerReady = true;
+          elements.iframe.classList.add("is-ready");
+          updatePromptState();
           syncMaterialColors();
           loadHistory();
         });
@@ -411,6 +533,7 @@ function renderMaterialControls() {
         trigger.focus();
       });
     });
+    wirePickerKeyboard(picker, ".color-option", 7);
   });
 }
 
@@ -435,6 +558,7 @@ function setPickerColor(picker, hex) {
   picker.querySelectorAll(".color-option").forEach((option) => {
     option.setAttribute("aria-selected", String(option.dataset.color === entry[1]));
   });
+  if (state.activeTab === "review") updateReview();
 }
 
 function closeColorPickers() {
@@ -490,6 +614,30 @@ function renderSelectPicker(select) {
       trigger.focus();
     });
   });
+  wirePickerKeyboard(picker, ".select-picker__option", 1);
+}
+
+function wirePickerKeyboard(picker, optionSelector, columns) {
+  picker.onkeydown = (event) => {
+    const trigger = picker.querySelector("button");
+    const menu = picker.querySelector('[role="listbox"]');
+    const options = [...menu.querySelectorAll(optionSelector)];
+    if (!options.length) return;
+    if (event.target === trigger && ["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      if (menu.hidden) trigger.click();
+      (options.find((option) => option.getAttribute("aria-selected") === "true") || options[0]).focus();
+      return;
+    }
+    const index = options.indexOf(document.activeElement);
+    if (index < 0) return;
+    if (event.key === "Escape") { event.preventDefault(); closeColorPickers(); closeSelectPickers(); trigger.focus(); return; }
+    if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const delta = { ArrowDown: columns, ArrowUp: -columns, ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : (index + delta + options.length) % options.length;
+    options[next].focus();
+  };
 }
 
 function closeSelectPickers() {
@@ -530,10 +678,9 @@ function resetDesignMaterial(materialName) {
 
 async function generateDesign() {
   const prompt = elements.prompt.value.trim();
-  if (!prompt || !state.api || state.generating) return;
+  if (prompt.length < 3 || !state.viewerReady || state.historyLoading || state.generating || state.applyingHistory || state.submittingRequest) return;
 
   setGenerating(true);
-  setStatus("Creating a production-ready UV texture. This can take up to two minutes.");
   try {
     const response = await apiFetch("/api/generate", {
       method: "POST",
@@ -556,21 +703,32 @@ async function generateDesign() {
 }
 
 async function loadHistory() {
+  const modelId = state.model.id;
+  const sequence = state.bootSequence;
   try {
-    const response = await apiFetch(`/api/designs?model_id=${encodeURIComponent(state.model.id)}`);
+    const response = await apiFetch(`/api/designs?model_id=${encodeURIComponent(modelId)}`);
     if (!response.ok) throw new Error("History is unavailable.");
     const payload = await response.json();
+    if (sequence !== state.bootSequence) return;
     state.history = payload.designs || [];
     state.historyIndex = -1;
   } catch {
+    if (sequence !== state.bootSequence) return;
     state.history = [];
     state.historyIndex = -1;
   }
+  if (sequence !== state.bootSequence) return;
+  state.historyLoading = false;
+  updatePromptState();
   updateHistoryUI();
 }
 
 async function showHistory(index) {
-  if (index < -1 || index >= state.history.length || state.generating) return;
+  if (index < -1 || index >= state.history.length || state.generating || state.applyingHistory || state.submittingRequest) return;
+  state.applyingHistory = true;
+  const sequence = ++historySequence;
+  const boot = state.bootSequence;
+  updatePromptState();
   if (index === -1) {
     state.historyIndex = -1;
     state.currentTexture = null;
@@ -585,25 +743,36 @@ async function showHistory(index) {
     } catch {
       setStatus("The blank jacket could not be restored.", true);
     }
+    state.applyingHistory = false;
+    updatePromptState();
+    updateHistoryUI();
+    updateReview();
     return;
   }
   state.historyIndex = index;
   updateHistoryUI();
   setStatus("Applying saved texture…");
   try {
-    await applyDesign(state.history[index]);
+    await applyDesign(state.history[index], { sequence, boot });
     setStatus(`Showing design ${state.history.length - index} of ${state.history.length}.`);
   } catch (error) {
     setStatus(error.message || "Saved design could not be loaded.", true);
+  } finally {
+    if (sequence === historySequence && boot === state.bootSequence) {
+      state.applyingHistory = false;
+      updatePromptState();
+      updateHistoryUI();
+    }
   }
 }
 
-async function applyDesign(design) {
+async function applyDesign(design, guard) {
   const response = await apiFetch(design.imageUrl);
   if (!response.ok) throw new Error("Texture image is unavailable.");
   const blob = await response.blob();
   const dataUrl = await blobToDataUrl(blob);
   const baseImage = await loadImage(dataUrl);
+  if (guard && (guard.sequence !== historySequence || guard.boot !== state.bootSequence)) return;
   state.currentTexture = { dataUrl, baseDataUrl: dataUrl, baseImage, prompt: design.prompt, id: design.id, status: design.status || "draft" };
   if (state.logos.length) {
     await renderLogoComposite(true);
@@ -616,6 +785,7 @@ async function applyDesign(design) {
   elements.designStatus.classList.toggle("is-executive", state.currentTexture.status === "executive");
   updatePromptState();
   updateRequestState();
+  updateReview();
 }
 
 function applyTexture(materialName, dataUrl) {
@@ -670,13 +840,22 @@ function setGenerating(value) {
   state.generating = value;
   elements.generate.classList.toggle("is-loading", value);
   elements.generate.querySelector("span").textContent = value ? "Generating design…" : "Generate design";
-  elements.generate.disabled = value || !state.api || !elements.prompt.value.trim();
-  elements.type.disabled = value;
-  elements.model.disabled = value;
-  [elements.type, elements.model].forEach((select) => {
-    const trigger = document.querySelector(`.select-picker[data-select="${select.id}"] .select-picker__trigger`);
-    if (trigger) trigger.disabled = value || select.options.length === 0;
-  });
+  updatePromptState();
+  document.querySelector("#generationProgress").hidden = !value;
+  elements.prompt.disabled = value;
+  document.querySelectorAll("[data-prompt]").forEach((button) => { button.disabled = value; });
+  clearInterval(generationClock);
+  if (value) {
+    generationStartedAt = Date.now();
+    updateGenerationClock();
+    generationClock = setInterval(updateGenerationClock, 1000);
+  }
+}
+
+function updateGenerationClock() {
+  const elapsed = Math.floor((Date.now() - generationStartedAt) / 1000);
+  document.querySelector("#generationElapsed").textContent = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
+  document.querySelector("#generationPhase").textContent = elapsed < 18 ? "Translating your design direction…" : elapsed < 65 ? "Creating your jacket artwork…" : "Still working. Detailed designs can take a little longer.";
 }
 
 function setStatus(message, isError = false) {
@@ -691,15 +870,22 @@ function setStatus(message, isError = false) {
 
 function updatePromptState() {
   elements.promptCount.textContent = `${elements.prompt.value.length} / 800`;
-  elements.generate.disabled = state.generating || !state.api || !elements.prompt.value.trim();
+  const busy = state.generating || state.applyingHistory || state.submittingRequest;
+  elements.generate.disabled = busy || state.historyLoading || !state.viewerReady || elements.prompt.value.trim().length < 3;
+  [elements.type, elements.model].forEach((select) => {
+    select.disabled = busy;
+    const trigger = document.querySelector(`.select-picker[data-select="${select.id}"] .select-picker__trigger`);
+    if (trigger) trigger.disabled = busy || select.options.length === 0;
+  });
+  document.querySelectorAll("[data-prompt]").forEach((button) => button.classList.toggle("is-selected", button.dataset.prompt === elements.prompt.value));
 }
 
 function updateHistoryUI() {
   const total = state.history.length;
   const position = state.historyIndex < 0 ? 0 : total - state.historyIndex;
   elements.historyPosition.textContent = `${position} / ${total}`;
-  elements.previous.disabled = state.generating || !total || state.historyIndex >= total - 1;
-  elements.next.disabled = state.generating || state.historyIndex < 0;
+  elements.previous.disabled = state.generating || state.applyingHistory || state.submittingRequest || !total || state.historyIndex >= total - 1;
+  elements.next.disabled = state.generating || state.applyingHistory || state.submittingRequest || state.historyIndex < 0;
   updateRequestState();
 }
 
@@ -792,6 +978,7 @@ function renderLogoLayers() {
   if (logo) {
     elements.logoSize.max = String(logoMaxSize(logo));
     elements.logoSize.value = String(logo.size);
+    document.querySelector("#logoSizeValue").textContent = `${Math.round(logo.size)}%`;
   }
 }
 
@@ -801,6 +988,7 @@ function updateLogoSize() {
   logo.size = Number(elements.logoSize.value);
   clampLogo(logo);
   elements.logoSize.value = String(logo.size);
+  document.querySelector("#logoSizeValue").textContent = `${Math.round(logo.size)}%`;
   renderLogoEditor();
   scheduleLogoComposite();
 }
@@ -836,6 +1024,7 @@ async function renderLogoComposite(applyToModel) {
   state.currentTexture.dataUrl = dataUrl;
   if (applyToModel) await applyTexture(state.model.designMaterial, dataUrl);
   await renderLogoEditor();
+  updateReview();
   return dataUrl;
 }
 
@@ -904,7 +1093,7 @@ async function renderLogoEditor() {
     context.fillStyle = "#8a8983";
     context.font = "32px system-ui";
     context.textAlign = "center";
-    context.fillText("Open or generate a design first", elements.logoPreview.width / 2, elements.logoPreview.height / 2);
+    context.fillText(t("Open or generate a design first"), elements.logoPreview.width / 2, elements.logoPreview.height / 2);
   }
 }
 
@@ -954,13 +1143,16 @@ function endLogoDrag(event) {
 
 function updateRequestState() {
   const messageReady = elements.requestMessage.value.trim().length >= 3;
-  elements.requestButton.disabled = !state.currentTexture || !messageReady || state.generating;
+  elements.requestButton.disabled = !state.currentTexture || !messageReady || state.generating || state.applyingHistory || state.submittingRequest;
 }
 
 async function submitDesignRequest() {
-  if (!state.currentTexture) return;
+  if (!state.currentTexture || state.submittingRequest || state.generating || state.applyingHistory) return;
   const message = elements.requestMessage.value.trim();
   if (message.length < 3) return;
+  state.submittingRequest = true;
+  updatePromptState();
+  updateHistoryUI();
   elements.requestButton.disabled = true;
   elements.requestButton.textContent = "Sending request…";
   try {
@@ -974,7 +1166,10 @@ async function submitDesignRequest() {
         logoIds: state.logos.map((logo) => logo.id),
         message,
         previewDataUrl,
-        placement: { logos: state.logos.map((logo) => ({ id: logo.id, x: logo.x, y: logo.y, size: logo.size, logoName: logo.name })) }
+        placement: {
+          logos: state.logos.map((logo) => ({ id: logo.id, x: logo.x, y: logo.y, size: logo.size, logoName: logo.name })),
+          trimColors: [...elements.materialControls.querySelectorAll(".color-picker")].map((picker) => ({ label: picker.dataset.label, material: picker.dataset.material, color: picker.dataset.color }))
+        }
       })
     });
     const payload = await response.json();
@@ -985,20 +1180,27 @@ async function submitDesignRequest() {
   } catch (error) {
     setStatus(error.message || "Request could not be sent.", true);
   } finally {
+    state.submittingRequest = false;
     elements.requestButton.textContent = "Submit design request";
     updateRequestState();
+    updatePromptState();
+    updateHistoryUI();
   }
 }
 
 async function openAccount() {
   elements.accountDrawer.hidden = false;
   elements.accountButton.setAttribute("aria-expanded", "true");
+  elements.appShell.inert = true;
+  elements.accountDrawer.querySelector(".account-drawer__close").focus();
   await loadAccount();
 }
 
 function closeAccount() {
   elements.accountDrawer.hidden = true;
   elements.accountButton.setAttribute("aria-expanded", "false");
+  elements.appShell.inert = false;
+  elements.accountButton.focus();
 }
 
 async function loadAccount() {
@@ -1015,7 +1217,7 @@ async function loadAccount() {
     elements.accountLogos.textContent = payload.counts.logos;
     elements.accountRequests.textContent = payload.counts.requests;
     elements.accountRequestList.innerHTML = payload.requests.length
-      ? payload.requests.map((item) => `<div class="account-request-item"><strong>${escapeMarkup(item.status.replace("_", " "))}</strong><span>${escapeMarkup(item.message.slice(0, 120))}</span></div>`).join("")
+      ? payload.requests.map((item) => `<div class="account-request-item"><strong>${escapeMarkup(item.status.replace("_", " "))}</strong><span data-no-translate>${escapeMarkup(item.message.slice(0, 120))}</span></div>`).join("")
       : "<div class=\"account-request-item\"><strong>No requests yet</strong><span>Your submitted design requests will appear here.</span></div>";
   } catch (error) {
     setStatus(error.message || "Account information is unavailable.", true);
@@ -1063,4 +1265,7 @@ function colorDistance(a, b) {
   return av.reduce((sum, value, index) => sum + Math.pow(value - bv[index], 2), 0);
 }
 
+document.addEventListener("vitalini:language", () => {
+  if (state.initialized) { updateReview(); renderLogoEditor(); }
+});
 bootstrap();
