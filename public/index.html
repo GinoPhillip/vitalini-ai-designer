@@ -7,7 +7,7 @@
     <meta name="description" content="Your mountain. Your signature. Create a custom Vitalini jacket in an interactive 3D design studio." />
     <title>Vitalini — Custom Studio</title>
     <link rel="preconnect" href="https://static.sketchfab.com" />
-    <link rel="stylesheet" href="./styles.css?v=20261008-2" />
+    <link rel="stylesheet" href="./styles.css?v=20261008-3" />
   </head>
   <body class="is-auth-loading">
     <section class="auth-gate" id="authGate" aria-label="Client access">
@@ -15,8 +15,8 @@
       <canvas class="terrain-canvas" data-terrain aria-hidden="true"></canvas>
       <div class="auth-story">
         <span class="eyebrow">THE VITALINI CUSTOM STUDIO</span>
-        <h1>Your mountain.<br>Your signature.</h1>
-        <p>From a first idea to a jacket that is unmistakably yours.</p>
+        <h1>Built for performance.<br>Designed by you.</h1>
+        <p>Your dedicated workspace for custom Vitalini apparel.</p>
         <div class="auth-story__line"><span>01 / Imagine</span><span>02 / Make it yours</span><span>03 / Refine together</span></div>
       </div>
       <div class="auth-card">
@@ -50,7 +50,7 @@
         <div class="stage__ambient" aria-hidden="true"></div>
         <iframe id="viewer" title="Interactive 3D jacket" allow="autoplay; fullscreen"></iframe>
         <div class="stage-topline"><span class="stage-edition">VITALINI <i></i> CUSTOM STUDIO</span><button id="focusButton" class="stage-tool" type="button" aria-label="Expand jacket preview" aria-pressed="false"><span aria-hidden="true">⤢</span> <b>Focus view</b></button></div>
-        <div class="stage-caption"><span class="eyebrow">YOUR CANVAS</span><h2 id="stageModelName">VP9655</h2><span id="stageDesignLabel">A fresh start.</span></div>
+        <div class="stage-caption"><span class="eyebrow">3D PREVIEW</span><h2 id="stageModelName">VP9655</h2><span id="stageDesignLabel">Base garment</span></div>
         <div class="design-switcher" aria-label="Saved design navigation"><div class="design-switcher__count"><span>Your designs</span><strong id="historyPosition">0 / 0</strong></div><div class="design-switcher__nav"><button id="previousButton" type="button" aria-label="Previous design" disabled>←</button><button id="nextButton" type="button" aria-label="Next design" disabled>→</button></div></div>
         <span class="stage-hint">Drag to rotate <i></i> Scroll to explore</span>
         <div class="generation-progress" id="generationProgress" role="status" hidden><span class="generation-orbit" aria-hidden="true"></span><div><strong>Bringing your idea to life</strong><span id="generationPhase">Finding the first lines…</span></div><span class="generation-elapsed" id="generationElapsed">0:00</span></div>
@@ -69,9 +69,9 @@
             <div class="field-control"><span class="field-control__label" id="modelLabel">Silhouette</span><div class="select-picker" data-select="modelSelect"><button class="select-picker__trigger" type="button" aria-labelledby="modelLabel modelSelectValue" aria-expanded="false" aria-controls="modelSelectMenu"><span class="select-picker__value" id="modelSelectValue">VP9655</span><span class="select-picker__chevron" aria-hidden="true">⌄</span></button><div class="select-picker__menu" id="modelSelectMenu" role="listbox" aria-labelledby="modelLabel" hidden></div></div><select id="modelSelect" aria-hidden="true" hidden></select></div>
           </div></section>
           <section class="workflow-panel" id="panel-design" role="tabpanel" aria-labelledby="tab-design">
-            <div class="section-heading"><span class="eyebrow">START WITH AN IDEA</span><h1>Make your mark.</h1><p>A color, a feeling, a place. Tell us what you have in mind.</p></div>
+            <div class="section-heading"><span class="eyebrow">GRAPHIC STUDIO</span><h1>Design your jacket.</h1><p>Describe the colors, pattern, and look you want.</p></div>
             <label class="prompt-field"><span class="sr-only">Design prompt</span><textarea id="prompt" maxlength="800" placeholder="Glacier blue meets deep navy. Clean alpine geometry, with a bold accent on the shoulders…"></textarea><span id="promptCount">0 / 800</span></label>
-            <div class="inspiration-heading"><span>Or take a little inspiration</span><span aria-hidden="true">↙</span></div>
+            <div class="inspiration-heading"><span>Starting points</span><span aria-hidden="true">↙</span></div>
             <div class="prompt-presets" aria-label="Prompt ideas">
               <button type="button" data-prompt="Minimal alpine geometry in ice blue, bone white, and deep navy"><span class="inspiration-art inspiration-art--alpine" aria-hidden="true"></span><b>Glacier</b><small>Quiet & architectural</small></button>
               <button type="button" data-prompt="Energetic abstract racing stripes in orange, scarlet, and black"><span class="inspiration-art inspiration-art--race" aria-hidden="true"></span><b>Race day</b><small>Bold & in motion</small></button>
@@ -81,13 +81,13 @@
             <button class="workflow-next" data-go-tab="details" type="button">Fine-tune the details <span aria-hidden="true">→</span></button>
           </section>
           <section class="workflow-panel" id="panel-details" role="tabpanel" aria-labelledby="tab-details" hidden>
-            <div class="section-heading"><span class="eyebrow">THE FINISHING TOUCHES</span><h2>It's in the details.</h2><p>Pick the accents that bring the whole jacket together.</p></div>
+            <div class="section-heading"><span class="eyebrow">FINISHES</span><h2>Color & finish.</h2><p>Set the contrast panels and zipper colors.</p></div>
             <div id="materialControls" class="material-controls"></div>
             <div class="detail-note"><span aria-hidden="true">◌</span><p>Trim colors update directly on your jacket. Try a quiet contrast, or one unexpected pop of color.</p></div>
             <button class="workflow-next" data-go-tab="logos" type="button">Add your signature <span aria-hidden="true">→</span></button>
           </section>
           <section class="workflow-panel logo-section" id="panel-logos" role="tabpanel" aria-labelledby="tab-logos" hidden>
-            <div class="section-heading"><span class="eyebrow">UNMISTAKABLY YOURS</span><h2>Put your name on it.</h2><p>Your club, your team, your signature. Add up to eight logos.</p></div>
+            <div class="section-heading"><span class="eyebrow">PERSONALIZATION</span><h2>Logos & placement.</h2><p>Upload up to eight logos and position each on the garment layout.</p></div>
             <input id="logoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
             <button class="secondary-button upload-button" id="logoUploadButton" type="button">Add logo</button>
             <p class="upload-help">PNG, JPG or WebP · Up to 5 MB · Transparent PNG works best</p>
@@ -101,14 +101,14 @@
             <button class="workflow-next" data-go-tab="review" type="button">Review your design <span aria-hidden="true">→</span></button>
           </section>
           <section class="workflow-panel request-section" id="panel-review" role="tabpanel" aria-labelledby="tab-review" hidden>
-            <div class="section-heading"><span class="eyebrow">LET'S MAKE IT REAL</span><h2>Ready for the next step?</h2><p>Your Vitalini graphic team will turn this first idea into a considered final design.</p></div>
+            <div class="section-heading"><span class="eyebrow">FINAL REVIEW</span><h2>Send to Vitalini.</h2><p>Review the artwork and add instructions for the graphics team.</p></div>
             <div class="review-card"><img id="reviewPreview" alt="Your current design with logo placements" hidden /><div><span class="field-control__label">YOUR DESIGN</span><strong id="reviewModel">VP9655</strong><span class="draft-badge" id="designStatus">Draft</span></div><p id="reviewPrompt">Generate a design, or revisit one of your saved ideas to get started.</p><div class="review-colors" id="reviewColors"></div></div>
             <label class="request-field"><span>A note for the team</span><textarea id="requestMessage" maxlength="2000" placeholder="What should we refine? Add logo positions, team colors, or any notes that matter to you…"></textarea></label>
             <button class="request-button" id="requestButton" type="button" disabled>Submit design request <span aria-hidden="true">↗</span></button>
             <p class="request-note">Your design and notes go straight to the Vitalini team. Track their progress in your account.</p>
           </section>
         </div>
-        <footer class="studio-footer"><span>IMAGINED BY YOU. MADE BY VITALINI.</span><span class="footer-dot" aria-hidden="true"></span></footer>
+        <footer class="studio-footer"><span>VITALINI / CUSTOM DESIGN</span><span class="footer-dot" aria-hidden="true"></span></footer>
       </aside>
       <div class="generation-status" id="generationStatus" role="status" aria-live="polite"></div>
     </main>
@@ -125,7 +125,7 @@
     </aside>
     <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
     <script src="./config.js"></script>
-    <script type="module" src="./terrain.js?v=20261008-2"></script>
-    <script type="module" src="./app.js?v=20261008-2"></script>
+    <script type="module" src="./terrain.js?v=20261008-3"></script>
+    <script type="module" src="./app.js?v=20261008-3"></script>
   </body>
 </html>

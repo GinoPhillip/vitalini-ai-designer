@@ -1,4 +1,5 @@
-// Flowing Vitalini microprint, composed procedurally from the brand wordmark.
+// An overhead contour map whose paths are composed entirely of Vitalini microprint.
+import { mapElevation, contoursAt, pointOnContour } from "./topography.js?v=20261008-3";
 const motionPreference = matchMedia("(prefers-reduced-motion: reduce)");
 
 class Terrain {
@@ -16,7 +17,7 @@ class Terrain {
       const ink = stamp.getContext("2d");
       ink.drawImage(logo, 0, 0);
       ink.globalCompositeOperation = "source-in";
-      ink.fillStyle = "#31563d";
+      ink.fillStyle = "#3f505b";
       ink.fillRect(0, 0, stamp.width, stamp.height);
       this.wordmark = stamp;
       if (this.width) { this.build(); this.restart(); }
@@ -57,9 +58,9 @@ class Terrain {
     const w = this.width, h = this.height;
     ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
     const paper = ctx.createLinearGradient(0, 0, w, h);
-    paper.addColorStop(0, "#e3eee6");
-    paper.addColorStop(.5, "#f4f6ef");
-    paper.addColorStop(1, "#dfeadf");
+    paper.addColorStop(0, "#e8edf0");
+    paper.addColorStop(.5, "#f6f7f5");
+    paper.addColorStop(1, "#e7edef");
     ctx.fillStyle = paper;
     ctx.fillRect(0, 0, w, h);
     this.drawMicroprint(ctx, w, h);
@@ -72,32 +73,40 @@ class Terrain {
   drawMicroprint(ctx, w, h) {
     if (!this.wordmark) return;
     const ratio = this.wordmark.height / this.wordmark.width;
-    // Wordmarks form the mountain ridgelines themselves; there are no drawn lines.
-    const ridge = (x) => {
-      const u = x / w;
-      const peak = (center, spread, height) => height * Math.exp(-(((u - center) / spread) ** 2));
-      return h * (.73 - peak(.26, .14, .34) - peak(.57, .19, .52) - peak(.94, .14, .30))
-        + 10 * Math.sin(u * 29);
-    };
-    const rowPitch = w < 600 ? 22 : 27;
-    for (let row = 0; row < h / rowPitch + 2; row++) {
-      const baseWidth = [30, 46, 64, 35, 86, 42][row % 6];
-      let x = -100 - (row % 2 ? baseWidth / 2 : 0);
-      while (x < w + 100) {
-        const depth = row * rowPitch;
-        const relief = Math.exp(-depth / (h * .55));
-        const y = h * .73 + (ridge(x) - h * .73) * relief + depth + 6 * Math.sin(x / 120 + row * .3);
-        const tangent = (ridge(x + 2) - ridge(x - 2)) / 4 * relief + .05 * Math.cos(x / 120 + row * .3);
-        const width = baseWidth * (.88 + .18 * Math.sin(x / 180 + row * .4));
-        const central = Math.exp(-(((x / w - .5) ** 2) / .07 + ((y / h - .5) ** 2) / .14));
-        const caption = Math.exp(-((x / 340) ** 4 + ((y - 130) / 155) ** 4));
-        ctx.save();
-        ctx.translate(x, y);
-        ctx.rotate(Math.atan(tangent));
-        ctx.globalAlpha = (.58 + .09 * Math.sin(row * .8)) * (1 - central * .25) * (1 - caption * .98);
-        ctx.drawImage(this.wordmark, -width / 2, -width * ratio / 2, width, width * ratio);
-        ctx.restore();
-        x += width + (baseWidth < 35 ? 5 : 9);
+    const cols = Math.max(55, Math.min(190, Math.round(w / 7)));
+    const rows = Math.max(55, Math.min(150, Math.round(h / 7)));
+    const dx = w / cols, dy = h / rows;
+    const field = Array.from({ length: rows + 1 }, (_, row) =>
+      Array.from({ length: cols + 1 }, (_, col) => mapElevation(col / cols, row / rows)));
+    for (let level = 0; level < 29; level++) {
+      const major = level % 4 === 0;
+      const width = (major ? 36 : level % 2 ? 20 : 24) * (w < 600 ? .78 : 1);
+      const pitch = width + (major ? 6 : 4);
+      for (const path of contoursAt(field, dx, dy, -.22 + level * .05)) {
+        const lengths = [0];
+        for (let i = 1; i < path.length; i++) lengths.push(lengths[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]));
+        const total = lengths.at(-1);
+        if (total < pitch * 2) continue;
+        const count = Math.floor(total / pitch);
+        const spacing = total / count;
+        for (let i = 0; i < count; i++) {
+          const distance = (i + .5) * spacing;
+          const [x, y] = pointOnContour(path, distance, lengths);
+          const before = pointOnContour(path, Math.max(0, distance - width * .28), lengths);
+          const after = pointOnContour(path, Math.min(total - .001, distance + width * .28), lengths);
+          let angle = Math.atan2(after[1] - before[1], after[0] - before[0]);
+          // Keep every wordmark readable regardless of the contour's winding.
+          if (angle > Math.PI / 2) angle -= Math.PI;
+          if (angle < -Math.PI / 2) angle += Math.PI;
+          const central = Math.exp(-(((x / w - .5) ** 2) / .06 + ((y / h - .5) ** 2) / .16));
+          const caption = Math.exp(-((x / Math.min(340, w * .72)) ** 4 + ((y - 130) / 150) ** 4));
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(angle);
+          ctx.globalAlpha = (major ? .58 : .34) * (1 - central * .50) * (1 - caption * .97);
+          ctx.drawImage(this.wordmark, -width / 2, -width * ratio / 2, width, width * ratio);
+          ctx.restore();
+        }
       }
     }
   }
