@@ -1,3 +1,5 @@
+import { t } from "./language.js?v=20261008-2";
+
 const API_BASE = (window.VITALINI_API_BASE || "").replace(/\/$/, "");
 const SESSION_KEY = "vitalini_client_session_v1";
 let sessionToken = localStorage.getItem(SESSION_KEY) || "";
@@ -360,13 +362,15 @@ function toggleFocusView(force) {
 
 function updateReview() {
   document.querySelector("#reviewModel").textContent = state.model?.name || "Jacket";
-  document.querySelector("#reviewPrompt").textContent = state.currentTexture?.prompt || "Generate a design, or revisit one of your saved ideas to get started.";
+  const reviewPrompt = document.querySelector("#reviewPrompt");
+  reviewPrompt.toggleAttribute("data-no-translate", Boolean(state.currentTexture));
+  reviewPrompt.textContent = state.currentTexture?.prompt || "Generate a design, or revisit one of your saved ideas to get started.";
   const image = document.querySelector("#reviewPreview");
   image.hidden = !state.currentTexture;
   if (state.currentTexture) image.src = state.currentTexture.dataUrl;
   else image.removeAttribute("src");
   document.querySelector("#reviewColors").innerHTML = [...elements.materialControls.querySelectorAll(".color-picker")].map((picker) =>
-    `<span><i style="--swatch:${picker.dataset.color}"></i>${escapeMarkup(picker.dataset.label)} · ${escapeMarkup(picker.querySelector(".color-picker__value").textContent)}</span>`).join("");
+    `<span><i style="--swatch:${picker.dataset.color}"></i>${escapeMarkup(picker.dataset.label)} · ${escapeMarkup(COLORS.find((entry) => entry[1] === picker.dataset.color)?.[0] || picker.dataset.color)}</span>`).join("");
   document.querySelector("#stageDesignLabel").textContent = state.currentTexture ? "Your idea, brought to life." : "A fresh start.";
 }
 
@@ -1089,7 +1093,7 @@ async function renderLogoEditor() {
     context.fillStyle = "#8a8983";
     context.font = "32px system-ui";
     context.textAlign = "center";
-    context.fillText("Open or generate a design first", elements.logoPreview.width / 2, elements.logoPreview.height / 2);
+    context.fillText(t("Open or generate a design first"), elements.logoPreview.width / 2, elements.logoPreview.height / 2);
   }
 }
 
@@ -1213,7 +1217,7 @@ async function loadAccount() {
     elements.accountLogos.textContent = payload.counts.logos;
     elements.accountRequests.textContent = payload.counts.requests;
     elements.accountRequestList.innerHTML = payload.requests.length
-      ? payload.requests.map((item) => `<div class="account-request-item"><strong>${escapeMarkup(item.status.replace("_", " "))}</strong><span>${escapeMarkup(item.message.slice(0, 120))}</span></div>`).join("")
+      ? payload.requests.map((item) => `<div class="account-request-item"><strong>${escapeMarkup(item.status.replace("_", " "))}</strong><span data-no-translate>${escapeMarkup(item.message.slice(0, 120))}</span></div>`).join("")
       : "<div class=\"account-request-item\"><strong>No requests yet</strong><span>Your submitted design requests will appear here.</span></div>";
   } catch (error) {
     setStatus(error.message || "Account information is unavailable.", true);
@@ -1261,4 +1265,7 @@ function colorDistance(a, b) {
   return av.reduce((sum, value, index) => sum + Math.pow(value - bv[index], 2), 0);
 }
 
+document.addEventListener("vitalini:language", () => {
+  if (state.initialized) { updateReview(); renderLogoEditor(); }
+});
 bootstrap();

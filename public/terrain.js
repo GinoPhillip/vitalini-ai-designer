@@ -16,7 +16,7 @@ class Terrain {
       const ink = stamp.getContext("2d");
       ink.drawImage(logo, 0, 0);
       ink.globalCompositeOperation = "source-in";
-      ink.fillStyle = "#42694f";
+      ink.fillStyle = "#31563d";
       ink.fillRect(0, 0, stamp.width, stamp.height);
       this.wordmark = stamp;
       if (this.width) { this.build(); this.restart(); }
@@ -72,24 +72,32 @@ class Terrain {
   drawMicroprint(ctx, w, h) {
     if (!this.wordmark) return;
     const ratio = this.wordmark.height / this.wordmark.width;
-    const rowPitch = w < 600 ? 46 : 58;
-    for (let row = -2; row < (h + w * .22) / rowPitch + 2; row++) {
-      const baseWidth = [38, 62, 88, 50, 112, 44][((row % 6) + 6) % 6];
-      let x = -150 - (row % 2 ? baseWidth / 2 : 0);
-      while (x < w + 150) {
-        const phase = x / 240 + row * .19;
-        const secondary = x / 105 + row * .11;
-        const y = row * rowPitch - x * .22 + 80 * Math.sin(phase) + 18 * Math.sin(secondary);
-        const tangent = -.22 + 80 / 240 * Math.cos(phase) + 18 / 105 * Math.cos(secondary);
-        const width = baseWidth * (.9 + .17 * Math.sin(x / 370 + row * .4));
+    // Wordmarks form the mountain ridgelines themselves; there are no drawn lines.
+    const ridge = (x) => {
+      const u = x / w;
+      const peak = (center, spread, height) => height * Math.exp(-(((u - center) / spread) ** 2));
+      return h * (.73 - peak(.26, .14, .34) - peak(.57, .19, .52) - peak(.94, .14, .30))
+        + 10 * Math.sin(u * 29);
+    };
+    const rowPitch = w < 600 ? 22 : 27;
+    for (let row = 0; row < h / rowPitch + 2; row++) {
+      const baseWidth = [30, 46, 64, 35, 86, 42][row % 6];
+      let x = -100 - (row % 2 ? baseWidth / 2 : 0);
+      while (x < w + 100) {
+        const depth = row * rowPitch;
+        const relief = Math.exp(-depth / (h * .55));
+        const y = h * .73 + (ridge(x) - h * .73) * relief + depth + 6 * Math.sin(x / 120 + row * .3);
+        const tangent = (ridge(x + 2) - ridge(x - 2)) / 4 * relief + .05 * Math.cos(x / 120 + row * .3);
+        const width = baseWidth * (.88 + .18 * Math.sin(x / 180 + row * .4));
         const central = Math.exp(-(((x / w - .5) ** 2) / .07 + ((y / h - .5) ** 2) / .14));
+        const caption = Math.exp(-((x / 340) ** 4 + ((y - 130) / 155) ** 4));
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(Math.atan(tangent));
-        ctx.globalAlpha = (.34 + .08 * Math.sin(row * .8)) * (1 - central * .32);
+        ctx.globalAlpha = (.58 + .09 * Math.sin(row * .8)) * (1 - central * .25) * (1 - caption * .98);
         ctx.drawImage(this.wordmark, -width / 2, -width * ratio / 2, width, width * ratio);
         ctx.restore();
-        x += width + (baseWidth < 55 ? 10 : 16);
+        x += width + (baseWidth < 35 ? 5 : 9);
       }
     }
   }

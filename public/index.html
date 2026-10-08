@@ -7,10 +7,11 @@
     <meta name="description" content="Your mountain. Your signature. Create a custom Vitalini jacket in an interactive 3D design studio." />
     <title>Vitalini — Custom Studio</title>
     <link rel="preconnect" href="https://static.sketchfab.com" />
-    <link rel="stylesheet" href="./styles.css?v=20261008-1" />
+    <link rel="stylesheet" href="./styles.css?v=20261008-2" />
   </head>
   <body class="is-auth-loading">
     <section class="auth-gate" id="authGate" aria-label="Client access">
+      <label class="language-switch language-switch--auth"><span class="sr-only">Language</span><select data-language aria-label="Language"><option value="en">English</option><option value="it">Italiano</option></select></label>
       <canvas class="terrain-canvas" data-terrain aria-hidden="true"></canvas>
       <div class="auth-story">
         <span class="eyebrow">THE VITALINI CUSTOM STUDIO</span>
@@ -55,7 +56,7 @@
         <div class="generation-progress" id="generationProgress" role="status" hidden><span class="generation-orbit" aria-hidden="true"></span><div><strong>Bringing your idea to life</strong><span id="generationPhase">Finding the first lines…</span></div><span class="generation-elapsed" id="generationElapsed">0:00</span></div>
       </section>
       <aside class="studio" aria-label="Design controls">
-        <header class="studio__header"><img src="./assets/vitalini-logo.png" alt="Vitalini" /><button class="account-button" id="accountButton" type="button" aria-label="Open account" aria-expanded="false"><span id="accountInitial">V</span></button></header>
+        <header class="studio__header"><label class="language-switch"><span class="sr-only">Language</span><select data-language aria-label="Language"><option value="en">EN</option><option value="it">IT</option></select></label><img src="./assets/vitalini-logo.png" alt="Vitalini" /><button class="account-button" id="accountButton" type="button" aria-label="Open account" aria-expanded="false"><span id="accountInitial">V</span></button></header>
         <nav class="studio-tabs" role="tablist" aria-label="Design workflow">
           <button id="tab-design" role="tab" aria-controls="panel-design" aria-selected="true" data-studio-tab="design" type="button"><span>01</span> Design</button>
           <button id="tab-details" role="tab" aria-controls="panel-details" aria-selected="false" tabindex="-1" data-studio-tab="details" type="button"><span>02</span> Details</button>
@@ -124,7 +125,7 @@
     </aside>
     <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
     <script src="./config.js"></script>
-    <script type="module" src="./terrain.js?v=20261008-1"></script>
-    <script type="module" src="./app.js?v=20261008-1"></script>
+    <script type="module" src="./terrain.js?v=20261008-2"></script>
+    <script type="module" src="./app.js?v=20261008-2"></script>
   </body>
 </html>
