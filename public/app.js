@@ -1,4 +1,4 @@
-import { t } from "./language.js?v=20261008-2";
+import { t } from "./language.js?v=20261008-3";
 
 const API_BASE = (window.VITALINI_API_BASE || "").replace(/\/$/, "");
 const SESSION_KEY = "vitalini_client_session_v1";
@@ -292,7 +292,7 @@ function initialize() {
     button.addEventListener("click", () => {
       elements.prompt.value = button.dataset.prompt;
       updatePromptState();
-      elements.prompt.focus();
+      elements.prompt.focus({ preventScroll: true });
     });
   });
   document.addEventListener("click", (event) => {
@@ -371,7 +371,7 @@ function updateReview() {
   else image.removeAttribute("src");
   document.querySelector("#reviewColors").innerHTML = [...elements.materialControls.querySelectorAll(".color-picker")].map((picker) =>
     `<span><i style="--swatch:${picker.dataset.color}"></i>${escapeMarkup(picker.dataset.label)} · ${escapeMarkup(COLORS.find((entry) => entry[1] === picker.dataset.color)?.[0] || picker.dataset.color)}</span>`).join("");
-  document.querySelector("#stageDesignLabel").textContent = state.currentTexture ? "Your idea, brought to life." : "A fresh start.";
+  document.querySelector("#stageDesignLabel").textContent = state.currentTexture ? "Custom artwork" : "Base garment";
 }
 
 function moveLogoWithKeyboard(event) {

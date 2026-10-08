@@ -1,5 +1,17 @@
 // UI copy only: customer prompts, filenames, usernames and messages are never translated.
 const IT = {
+  "Built for performance.": "Nata per la performance.", "Designed by you.": "Disegnata da te.",
+  "Your dedicated workspace for custom Vitalini apparel.": "Il tuo spazio dedicato all’abbigliamento personalizzato Vitalini.",
+  "3D PREVIEW": "ANTEPRIMA 3D", "Base garment": "Capo base", "Custom artwork": "Grafica personalizzata",
+  "GRAPHIC STUDIO": "STUDIO GRAFICO", "Design your jacket.": "Disegna la tua giacca.",
+  "Describe the colors, pattern, and look you want.": "Descrivi i colori, il motivo e lo stile che desideri.",
+  "Starting points": "Spunti di partenza", "FINISHES": "FINITURE", "Color & finish.": "Colori e finiture.",
+  "Set the contrast panels and zipper colors.": "Scegli i colori dei pannelli a contrasto e della zip.",
+  "PERSONALIZATION": "PERSONALIZZAZIONE", "Logos & placement.": "Loghi e posizione.",
+  "Upload up to eight logos and position each on the garment layout.": "Carica fino a otto loghi e posizionali sul modello del capo.",
+  "FINAL REVIEW": "RIEPILOGO FINALE", "Send to Vitalini.": "Invia a Vitalini.",
+  "Review the artwork and add instructions for the graphics team.": "Controlla la grafica e aggiungi le indicazioni per il team grafico.",
+  "Incorrect username, email, or password.": "Nome utente, email o password non corretti.",
   "Language": "Lingua", "THE VITALINI CUSTOM STUDIO": "LO STUDIO PERSONALIZZATO VITALINI",
   "Your mountain.": "La tua montagna.", "Your signature.": "La tua firma.",
   "From a first idea to a jacket that is unmistakably yours.": "Dalla prima idea a una giacca che parla di te.",
