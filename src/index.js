@@ -488,7 +488,7 @@ async function createDesignRequest(request, env, user) {
   try {
     await env.DB.prepare(
       "INSERT INTO design_requests (id, user_id, design_id, logo_id, message, placement_json, preview_object_key, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)"
-    ).bind(id, user.id, designId, logoId || null, message, placement ? JSON.stringify(placement) : null, objectKey, now, now).run();
+    ).bind(id, user.id, designId, logoId || null, message, JSON.stringify({ ...(placement || {}), logoIds }), objectKey, now, now).run();
   } catch (error) {
     await env.DESIGNS.delete(objectKey);
     throw error;
@@ -612,7 +612,7 @@ async function getAdminRequest(request, env) {
   const requestId = pathPart(request, 4);
   if (!UUID_RE.test(requestId)) return json({ error: "Invalid request." }, 400);
   const item = await env.DB.prepare(
-    "SELECT r.id, r.user_id, r.design_id, r.message, r.placement_json, r.status, r.created_at, r.updated_at, u.username, u.email, d.model_id, d.prompt, d.status AS design_status, d.render_preset, d.created_at AS design_created_at FROM design_requests r JOIN users u ON u.id = r.user_id JOIN designs d ON d.id = r.design_id WHERE r.id = ?"
+    "SELECT r.id, r.user_id, r.design_id, r.logo_id, r.message, r.placement_json, r.status, r.created_at, r.updated_at, u.username, u.email, d.model_id, d.prompt, d.status AS design_status, d.render_preset, d.created_at AS design_created_at FROM design_requests r JOIN users u ON u.id = r.user_id JOIN designs d ON d.id = r.design_id WHERE r.id = ?"
   ).bind(requestId).first();
   if (!item) return json({ error: "Request not found." }, 404);
   const profile = await getAdminUserProfile(env, item.user_id);
@@ -620,6 +620,7 @@ async function getAdminRequest(request, env) {
     request: {
       id: item.id,
       userId: item.user_id,
+      logoId: item.logo_id || null,
       message: item.message,
       placement: parseJsonObject(item.placement_json),
       status: item.status,

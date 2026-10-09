@@ -86,3 +86,33 @@ test("new workspace tables cascade on account deletion", async () => {
   assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM client_workspaces").get().n, 0);
   sqlite.close();
 });
+
+test("admin request details expose the legacy logo reference only to authenticated admins", async () => {
+  const { sqlite, env } = database();
+  const requestId = "77777777-7777-4777-8777-777777777777";
+  sqlite.prepare("INSERT INTO admin_sessions (token_hash,created_at,expires_at) VALUES (?,?,?)").run(createHash("sha256").update("admin").digest("hex"), "2026-01-01", "2099-01-01");
+  sqlite.prepare("INSERT INTO design_requests (id,user_id,design_id,logo_id,message,preview_object_key,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)")
+    .run(requestId, client, design, logo, "Please refine", "preview.jpg", "2026-01-01", "2026-01-01");
+  const req = (token) => new Request(`https://studio.test/api/admin/requests/${requestId}`, { headers: { authorization: `Bearer ${token}` } });
+  assert.equal((await worker.fetch(req("client"), env)).status, 401);
+  const response = await worker.fetch(req("admin"), env);
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.request.logoId, logo);
+  assert.equal(payload.profile.logos[0].id, logo);
+  assert.equal(payload.request.design.modelId, "VP9655");
+  sqlite.close();
+});
+
+test("submitted requests persist all verified logo references for the handoff", async () => {
+  const { sqlite, env } = database();
+  env.DESIGNS = { put: async () => {}, delete: async () => {} };
+  const body = { designId: design, logoIds: [logo, logo], message: "Please refine", placement: { logos: edit().logos },
+    previewDataUrl: "data:image/png;base64,iVBORw0KGgo=" };
+  const response = await worker.fetch(new Request("https://studio.test/api/requests", { method: "POST", headers: { authorization: "Bearer client", "content-type": "application/json" }, body: JSON.stringify(body) }), env);
+  assert.equal(response.status, 201);
+  const saved = sqlite.prepare("SELECT placement_json FROM design_requests").get();
+  assert.deepEqual(JSON.parse(saved.placement_json).logoIds, [logo]);
+  assert.deepEqual(JSON.parse(saved.placement_json).logos, edit().logos);
+  sqlite.close();
+});

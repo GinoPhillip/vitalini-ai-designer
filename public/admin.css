@@ -77,8 +77,17 @@ input,select { width:100%; height:44px; padding:0 12px; color:var(--ink); backgr
 .request-focus__message > div > span { color:var(--muted); font-size:9px; font-weight:720; letter-spacing:.13em; text-transform:uppercase; }
 .request-focus__message p { max-width:760px; margin:8px 0 0; font-size:17px; line-height:1.55; letter-spacing:-.015em; white-space:pre-wrap; }
 .request-focus__media { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.request-focus__logos { margin-top:20px; }
+.request-focus__logos h2 { margin:0 0 12px; font-size:14px; }
+.request-focus__logos .logo-card img { height:96px; aspect-ratio:auto; border-radius:7px; background:repeating-conic-gradient(#e9ebec 0% 25%,white 0% 50%) 50%/12px 12px; }
+.request-focus__logos p { margin:0; font-size:12px; color:var(--muted); }
+.request-export { display:grid; gap:7px; max-width:300px; text-align:right; }
+.request-export button { min-height:46px; padding:12px 16px; border:0; border-radius:11px; background:var(--ink); color:white; font-size:12px; font-weight:650; }
+.request-export button:disabled { opacity:.55; cursor:wait; }
+.request-export small,.request-export [role="status"] { font-size:10px; line-height:1.4; color:var(--muted); }
+@media(max-width:560px) { #requestDetailView > .view-heading { flex-direction:column; }.request-export { width:100%; max-width:none; text-align:left; } }
 .request-focus figure { margin:0; overflow:hidden; background:white; border:1px solid var(--line); border-radius:14px; }
-.request-focus figure img { width:100%; aspect-ratio:1; display:block; object-fit:contain; background:#efeee9; }
+.request-focus figure img { width:100%; height:clamp(260px,42vh,440px); display:block; object-fit:contain; background:#efeee9; }
 .request-focus figcaption { padding:10px 12px; color:var(--muted); font-size:9px; font-weight:650; }
 .request-focus__design { margin-top:14px; padding:14px; background:white; border:1px solid var(--line); border-radius:12px; }
 .request-focus__design strong { display:block; font-size:11px; text-transform:capitalize; }

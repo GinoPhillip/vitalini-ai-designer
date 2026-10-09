@@ -92,6 +92,8 @@ If a separate frontend origin will call this Worker, add it to the comma-separat
 
 Design requests stay entirely inside the portal. The submitted composite preview, client message, original generated texture, and full client profile are available only through the authenticated administrator dashboard.
 
+The focused request shows its used logos immediately below the two design images. Administrators can download a vector-handoff ZIP containing an editable-rebuild brief, verbatim client notes and generation prompt, model/placement/trim metadata, submitted composite, original bitmap without client-logo overlays, blank UV guide, and only the referenced logo files. The archive is assembled locally in the admin browser from authenticated file downloads; it includes no credentials, makes no AI call, and does not automatically vectorize or certify a design for production. Keep the downloaded client assets private.
+
 Deploy:
 
 ```bash
