@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { contoursAt, pointOnContour, mapElevation } from "../public/topography.js";
+import { contoursAt, pointOnContour, mapElevation, createWordmarkSpacing } from "../public/topography.js";
 
 test("a radial height field produces one closed overhead contour", () => {
   const field = Array.from({ length: 41 }, (_, y) => Array.from({ length: 41 }, (_, x) => 1 - ((x - 20) ** 2 + (y - 20) ** 2) / 400));
@@ -35,4 +35,19 @@ test("procedural elevation is finite and deterministic", () => {
     assert.ok(Number.isFinite(mapElevation(x, y)));
     assert.equal(mapElevation(x, y), mapElevation(x, y));
   }
+});
+
+test("logo spacing rejects overlaps and keeps a padded gap", () => {
+  const reserve = createWordmarkSpacing();
+  assert.equal(reserve(0, 0, 100, 20, 0), true);
+  assert.equal(reserve(20, 0, 100, 20, 0), false);
+  assert.equal(reserve(0, 25, 100, 20, 0), false);
+  assert.equal(reserve(0, 35, 100, 20, 0), true);
+});
+
+test("rotated logos use their real footprint rather than bounding boxes", () => {
+  const reserve = createWordmarkSpacing(30);
+  assert.equal(reserve(0, 0, 100, 10, Math.PI / 4), true);
+  assert.equal(reserve(-25, 25, 100, 10, Math.PI / 4), true);
+  assert.equal(reserve(0, 0, 100, 10, -Math.PI / 4), false);
 });
