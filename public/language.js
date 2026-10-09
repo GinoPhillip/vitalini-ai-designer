@@ -44,7 +44,7 @@ const IT = {
   "A color, a feeling, a place. Tell us what you have in mind.": "Un colore, un’emozione, un luogo. Raccontaci la tua idea.",
   "Design prompt": "Descrizione del design", "Glacier blue meets deep navy. Clean alpine geometry, with a bold accent on the shoulders…": "Azzurro ghiaccio e blu notte. Geometrie alpine pulite, con un accento deciso sulle spalle…",
   "Or take a little inspiration": "Oppure lasciati ispirare", "Glacier": "Ghiacciaio", "Quiet & architectural": "Essenziale e geometrico",
-  "Race day": "Giorno di gara", "Bold & in motion": "Deciso e dinamico", "Terrain": "Paesaggio", "Tonal & technical": "Tonale e tecnico",
+  "Race day": "Giorno di gara", "Bold & in motion": "Deciso e dinamico", "Monochrome": "Monocromatico", "Bold & clean": "Deciso e pulito",
   "Generate design": "Genera design", "Generating design…": "Generazione del design…", "Fine-tune the details": "Perfeziona i dettagli",
   "THE FINISHING TOUCHES": "GLI ULTIMI RITOCCHI", "It's in the details.": "La differenza è nei dettagli.",
   "Pick the accents that bring the whole jacket together.": "Scegli i dettagli che danno carattere alla giacca.",
