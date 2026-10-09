@@ -1,4 +1,4 @@
-import { buildRequestPackage, usedRequestLogos } from "./request-package.js?v=20261009-4";
+import { buildRequestPackage, usedRequestLogos } from "./request-package.js?v=20261009-7";
 const API_BASE = (window.VITALINI_API_BASE || "").replace(/\/$/, "");
 const ADMIN_SESSION_KEY = "vitalini_admin_session_v1";
 let adminToken = sessionStorage.getItem(ADMIN_SESSION_KEY) || "";
@@ -215,11 +215,11 @@ async function downloadRequestPackage() {
   const button = document.querySelector("#requestPackageButton"), status = document.querySelector("#requestPackageStatus");
   requestExportBusy = true; button.disabled = true;
   button.textContent = "Preparing ZIP…";
-  status.textContent = "Fetching the submitted images and logos…";
+  status.textContent = "Fetching artwork, logos and production references…";
   try {
     const loadPrivate = async (path) => {
       const response = await adminFetch(path);
-      if (!response.ok) throw new Error("A private image could not be downloaded. Please sign in again or retry.");
+      if (!response.ok) throw new Error("A private asset could not be downloaded. Please sign in again or retry.");
       return response.blob();
     };
     const loadTemplate = async (path) => {
@@ -233,12 +233,12 @@ async function downloadRequestPackage() {
     document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     if (currentRequest?.id === request.id) status.textContent = "ZIP downloaded. Extract it and open the rebuild brief in your coding assistant.";
-    showStatus("Vector handoff ZIP downloaded. No AI generation was run.");
+    showStatus("Production handoff ZIP downloaded. No AI generation was run.");
   } catch (error) {
     if (currentRequest?.id === request.id) status.textContent = error.message;
     showStatus(error.message, true);
   } finally {
-    requestExportBusy = false; button.disabled = false; button.textContent = "Download vector handoff ZIP ↓";
+    requestExportBusy = false; button.disabled = false; button.textContent = "Download production handoff ZIP ↓";
   }
 }
 

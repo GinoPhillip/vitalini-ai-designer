@@ -38,6 +38,29 @@ function request(token, method, body, query = "") {
     ...(body ? { body: JSON.stringify(body) } : {}) });
 }
 
+test("handoff references require admin authentication and only serve fixed private keys", async () => {
+  const { sqlite, env } = database();
+  sqlite.prepare("INSERT INTO admin_sessions (token_hash,created_at,expires_at) VALUES (?,?,?)").run(createHash("sha256").update("admin").digest("hex"), "2026-01-01", "2099-01-01");
+  const keys = [];
+  env.DESIGNS = { async get(key) { keys.push(key); return { body: "private-reference", httpMetadata: { contentType: key.endsWith(".txt") ? "text/plain" : "image/png" } }; } };
+  const req = (token, name = "production-layout-vp9655") => new Request(`https://studio.test/api/admin/handoff-assets/${name}`, { headers: { authorization: `Bearer ${token}` } });
+  for (const token of ["client", "other", "unknown", ""]) assert.equal((await worker.fetch(req(token), env)).status, 401);
+  assert.equal(keys.length, 0);
+  for (const name of ["production-layout-vp9655", "past-work-example", "past-work-cut-lines", "procedural-workflow"]) {
+    const response = await worker.fetch(req("admin", name), env);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("cache-control"), "private, no-store");
+    assert.equal(await response.text(), "private-reference");
+  }
+  assert.deepEqual(keys, ["admin-handoff/v1/vp9655-production-layout.png", "admin-handoff/v1/past-work-example.png", "admin-handoff/v1/past-work-cut-lines.png", "admin-handoff/v1/opus-procedural-workflow.txt"]);
+  assert.equal((await worker.fetch(req("admin", "__proto__"), env)).status, 404);
+  assert.equal((await worker.fetch(req("admin", "some-other-client.png"), env)).status, 404);
+  assert.equal(keys.length, 4);
+  env.DESIGNS.get = async () => null;
+  assert.equal((await worker.fetch(req("admin"), env)).status, 404);
+  sqlite.close();
+});
+
 test("workspace validation rejects invalid placement, excessive logos and executable colors", () => {
   assert.deepEqual(normalizeWorkspaceEdit(edit()), edit());
   const invalid = edit(); invalid.logos[0].rotation = NaN;

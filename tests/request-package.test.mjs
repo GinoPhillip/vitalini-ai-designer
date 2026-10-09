@@ -16,6 +16,7 @@ function unzip(blobBytes) {
   return JSON.parse(execFileSync("python3", ["-c", "import sys,io,zipfile,json,base64;z=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()));assert z.testzip() is None;print(json.dumps({n:base64.b64encode(z.read(n)).decode() for n in z.namelist()}))"], { input: blobBytes, maxBuffer: 4 * 1024 * 1024 }).toString());
 }
 const text = (entries, path) => Buffer.from(entries[path], "base64").toString();
+const fixtureLoad = async (path) => new Blob([path], { type: path.endsWith("procedural-workflow") ? "text/plain; charset=utf-8" : path.endsWith("preview") ? "image/jpeg" : "image/png" });
 
 test("ZIP store files open independently with binary content, UTF-8 names, and CRC checks", async () => {
   assert.equal(crc32(new TextEncoder().encode("123456789")), 0xcbf43926);
@@ -29,7 +30,7 @@ test("ZIP store files open independently with binary content, UTF-8 names, and C
 
 test("request package includes snapshots, only used logos, notes, model, source and composite", async () => {
   const calls = [];
-  const load = async (path) => { calls.push(path); return new Blob([path], { type: path.endsWith("preview") ? "image/jpeg" : "image/png" }); };
+  const load = async (path) => { calls.push(path); return fixtureLoad(path); };
   const r = request(), before = JSON.stringify(r);
   const bundle = await buildRequestPackage(r, library, load, load);
   const entries = unzip(Buffer.from(await bundle.blob.arrayBuffer()));
@@ -44,7 +45,14 @@ test("request package includes snapshots, only used logos, notes, model, source 
   assert.equal(manifest.placements[0].file, "logos/01_Club-logo.png");
   assert.ok(text(entries, manifest.files.submittedWithLogos).includes(`/requests/${id}/preview`));
   assert.ok(text(entries, manifest.files.originalWithoutLogoOverlays).includes(`/designs/${designId}/image`));
-  assert.equal(calls.length, 4); assert.equal(calls.some((path) => path.includes(unrelated)), false);
+  assert.equal(calls.length, 8); assert.equal(calls.some((path) => path.includes(unrelated)), false);
+  assert.equal(manifest.schemaVersion, 2);
+  assert.equal(manifest.productionPreparation.matchesCurrentModel, true);
+  assert.equal(manifest.files.productionLayout, "design/04_PRODUCTION_LAYOUT.png");
+  assert.equal(text(entries, manifest.files.historicalWorkflow), "/api/admin/handoff-assets/procedural-workflow");
+  assert.match(text(entries, "references/00_REFERENCE_SCOPE.txt"), /DO NOT copy/);
+  assert.match(text(entries, "04_PRODUCTION_READINESS_CHECKLIST.txt"), /NOT PROVIDED/);
+  assert.match(text(entries, manifest.files.pastWorkCutLineExample), /past-work-cut-lines/);
   assert.equal(Object.values(entries).map((value) => Buffer.from(value, "base64").toString()).join("\n").includes("private@example.test"), false);
   assert.equal(JSON.stringify(r), before);
 });
@@ -52,7 +60,7 @@ test("request package includes snapshots, only used logos, notes, model, source 
 test("legacy/no-logo requests work and missing assets fail without a misleading partial ZIP", async () => {
   const r = request(); r.placement = null; r.logoId = logoId;
   assert.deepEqual(requestLogoIds(r), [logoId]); assert.equal(usedRequestLogos(r, library).length, 1);
-  const image = async () => new Blob(["test"], { type: "image/png" });
+  const image = fixtureLoad;
   const legacy = await buildRequestPackage(r, library, image, image);
   const entries = unzip(Buffer.from(await legacy.blob.arrayBuffer()));
   assert.match(JSON.parse(text(entries, "02_MODEL_AND_PLACEMENT.json")).placementNote, /Legacy/);
@@ -62,4 +70,22 @@ test("legacy/no-logo requests work and missing assets fail without a misleading 
   await assert.rejects(buildRequestPackage(request(), [], image, image), /unavailable/);
   await assert.rejects(buildRequestPackage(request(), library, async () => { throw new Error("403"); }, image), /403/);
   await assert.rejects(buildRequestPackage({ ...r, id: "../../escape" }, library, image, image), /Unsupported/);
+});
+
+test("other-model production layouts are reference-only and all reference bytes are preserved", async () => {
+  const r = request(); r.design.modelId = "VP9109";
+  const exact = new Uint8Array([0, 255, 80, 13, 10, 239, 187, 191]);
+  const load = async (path) => path.includes("handoff-assets") ? new Blob([exact], { type: path.endsWith("procedural-workflow") ? "text/plain" : "image/png" }) : fixtureLoad(path);
+  const bundle = await buildRequestPackage(r, library, load, fixtureLoad);
+  const entries = unzip(Buffer.from(await bundle.blob.arrayBuffer()));
+  const manifest = JSON.parse(text(entries, "02_MODEL_AND_PLACEMENT.json"));
+  assert.equal(manifest.files.productionLayout, null);
+  assert.equal(manifest.productionPreparation.matchesCurrentModel, false);
+  assert.match(manifest.productionPreparation.layoutRole, /OTHER MODEL/);
+  for (const name of [manifest.files.suppliedLayoutReference, manifest.files.historicalWorkflow, manifest.files.pastWorkExample, manifest.files.pastWorkCutLineExample]) {
+    assert.deepEqual(new Uint8Array(Buffer.from(entries[name], "base64")), exact);
+  }
+  assert.equal(entries["design/04_PRODUCTION_LAYOUT.png"], undefined);
+  await assert.rejects(buildRequestPackage(r, library, async (path) => path.includes("handoff-assets") ? new Blob([], { type: "image/png" }) : fixtureLoad(path), fixtureLoad), /reference is missing/);
+  await assert.rejects(buildRequestPackage(r, library, async (path) => path.endsWith("procedural-workflow") ? new Blob(["<html>Login</html>"], { type: "text/html" }) : fixtureLoad(path), fixtureLoad), /workflow is missing/);
 });
