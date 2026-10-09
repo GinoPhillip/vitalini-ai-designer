@@ -1,5 +1,5 @@
 // An overhead contour map whose paths are composed entirely of Vitalini microprint.
-import { mapElevation, contoursAt, pointOnContour } from "./topography.js?v=20261008-3";
+import { mapElevation, contoursAt, pointOnContour } from "./topography.js?v=20261008-4";
 const motionPreference = matchMedia("(prefers-reduced-motion: reduce)");
 
 class Terrain {
@@ -78,11 +78,11 @@ class Terrain {
     const dx = w / cols, dy = h / rows;
     const field = Array.from({ length: rows + 1 }, (_, row) =>
       Array.from({ length: cols + 1 }, (_, col) => mapElevation(col / cols, row / rows)));
-    for (let level = 0; level < 29; level++) {
+    for (let level = 0; level < 45; level++) {
       const major = level % 4 === 0;
-      const width = (major ? 36 : level % 2 ? 20 : 24) * (w < 600 ? .78 : 1);
-      const pitch = width + (major ? 6 : 4);
-      for (const path of contoursAt(field, dx, dy, -.22 + level * .05)) {
+      const width = (major ? 76 : level % 2 ? 30 : 48) * (w < 600 ? .72 : 1);
+      const pitch = width + (major ? 5 : 3);
+      for (const path of contoursAt(field, dx, dy, -.22 + level * .032)) {
         const lengths = [0];
         for (let i = 1; i < path.length; i++) lengths.push(lengths[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]));
         const total = lengths.at(-1);
@@ -99,11 +99,11 @@ class Terrain {
           if (angle > Math.PI / 2) angle -= Math.PI;
           if (angle < -Math.PI / 2) angle += Math.PI;
           const central = Math.exp(-(((x / w - .5) ** 2) / .06 + ((y / h - .5) ** 2) / .16));
-          const caption = Math.exp(-((x / Math.min(340, w * .72)) ** 4 + ((y - 130) / 150) ** 4));
+          const caption = Math.exp(-((x / Math.min(280, w * .72)) ** 4 + ((y - 130) / 130) ** 4));
           ctx.save();
           ctx.translate(x, y);
           ctx.rotate(angle);
-          ctx.globalAlpha = (major ? .58 : .34) * (1 - central * .50) * (1 - caption * .97);
+          ctx.globalAlpha = (major ? .62 : .40) * (1 - central * .32) * (1 - caption * .97);
           ctx.drawImage(this.wordmark, -width / 2, -width * ratio / 2, width, width * ratio);
           ctx.restore();
         }
