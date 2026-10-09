@@ -1,4 +1,4 @@
-import { t } from "./language.js?v=20261009-2";
+import { t } from "./language.js?v=20261009-5";
 import { normalizeRotation, rotatedExtent, logoLocalPoint } from "./logo-geometry.js?v=20261009-1";
 import { copyCamera, zoomCamera } from "./viewer-camera.js?v=20261009-2";
 
