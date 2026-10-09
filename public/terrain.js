@@ -1,163 +1,27 @@
-// An overhead contour map whose paths are composed entirely of Vitalini microprint.
-import { mapElevation, contoursAt, pointOnContour, createWordmarkSpacing } from "./topography.js?v=20261008-5";
-const motionPreference = matchMedia("(prefers-reduced-motion: reduce)");
+// Render the client's supplied artwork with cover sizing and native pixel density.
+const artwork = new Image();
+const surfaces = [...document.querySelectorAll("[data-terrain]")];
 
-class Terrain {
-  constructor(canvas) {
-    this.canvas = canvas;
-    this.context = canvas.getContext("2d", { alpha: false });
-    if (!this.context) return;
-    this.surface = document.createElement("canvas");
-    this.wordmark = null;
-    const logo = new Image();
-    logo.onload = () => {
-      const stamp = document.createElement("canvas");
-      stamp.width = logo.naturalWidth;
-      stamp.height = logo.naturalHeight;
-      const ink = stamp.getContext("2d");
-      ink.drawImage(logo, 0, 0);
-      // Ignore the source PNG's transparent margins when sizing and spacing logos.
-      const pixels = ink.getImageData(0, 0, stamp.width, stamp.height).data;
-      let left = stamp.width, top = stamp.height, right = -1, bottom = -1;
-      for (let y = 0; y < stamp.height; y++) for (let x = 0; x < stamp.width; x++) {
-        if (pixels[(y * stamp.width + x) * 4 + 3] > 16) {
-          left = Math.min(left, x); top = Math.min(top, y);
-          right = Math.max(right, x); bottom = Math.max(bottom, y);
-        }
-      }
-      if (right < left) return;
-      stamp.width = right - left + 1;
-      stamp.height = bottom - top + 1;
-      ink.drawImage(logo, left, top, stamp.width, stamp.height, 0, 0, stamp.width, stamp.height);
-      ink.globalCompositeOperation = "source-in";
-      ink.fillStyle = "#3f505b";
-      ink.fillRect(0, 0, stamp.width, stamp.height);
-      this.wordmark = stamp;
-      if (this.width) { this.build(); this.restart(); }
-    };
-    logo.src = new URL("./assets/vitalini-logo.png", import.meta.url).href;
-    this.visible = false;
-    this.lastFrame = 0;
-    this.frame = 0;
-    this.draw = this.draw.bind(this);
-    this.resize = this.resize.bind(this);
-    this.resizeObserver = new ResizeObserver(this.resize);
-    this.resizeObserver.observe(canvas);
-    this.visibilityObserver = new IntersectionObserver(([entry]) => {
-      this.visible = entry.isIntersecting;
-      this.restart();
-    });
-    this.visibilityObserver.observe(canvas);
-    motionPreference.addEventListener("change", () => this.restart());
-    document.addEventListener("visibilitychange", () => this.restart());
-  }
-
-  resize() {
-    const { width, height } = this.canvas.getBoundingClientRect();
-    if (width < 1 || height < 1) return;
-    this.width = width;
-    this.height = height;
-    this.scale = Math.min(devicePixelRatio || 1, 2);
-    for (const surface of [this.canvas, this.surface]) {
-      surface.width = Math.round(width * this.scale);
-      surface.height = Math.round(height * this.scale);
-    }
-    this.build();
-    this.restart();
-  }
-
-  build() {
-    const ctx = this.surface.getContext("2d");
-    const w = this.width, h = this.height;
-    ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
-    const paper = ctx.createLinearGradient(0, 0, w, h);
-    paper.addColorStop(0, "#e8edf0");
-    paper.addColorStop(.5, "#f6f7f5");
-    paper.addColorStop(1, "#e7edef");
-    ctx.fillStyle = paper;
-    ctx.fillRect(0, 0, w, h);
-    this.drawMicroprint(ctx, w, h);
-    let seed = 7351;
-    const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-    ctx.fillStyle = "rgba(61,99,65,.035)";
-    for (let i = 0; i < w * h / 180; i++) ctx.fillRect(random() * w, random() * h, .7, .7);
-  }
-
-  drawMicroprint(ctx, w, h) {
-    if (!this.wordmark) return;
-    const ratio = this.wordmark.height / this.wordmark.width;
-    const cols = Math.max(55, Math.min(190, Math.round(w / 7)));
-    const rows = Math.max(55, Math.min(150, Math.round(h / 7)));
-    const dx = w / cols, dy = h / rows;
-    const field = Array.from({ length: rows + 1 }, (_, row) =>
-      Array.from({ length: cols + 1 }, (_, col) => mapElevation(col / cols, row / rows)));
-    const reserve = createWordmarkSpacing();
-    // Establish the large contour bands first; medium and small marks fill the gaps.
-    const levels = Array.from({ length: 31 }, (_, i) => i).sort((a, b) =>
-      (a % 3 === 0 ? 0 : a % 6 === 5 ? 2 : 1) - (b % 3 === 0 ? 0 : b % 6 === 5 ? 2 : 1));
-    for (const level of levels) {
-      const major = level % 3 === 0;
-      const small = level % 6 === 5;
-      const width = (major ? 128 : small ? 54 : 92) * (w < 600 ? .62 : 1);
-      const pitch = width + (major ? 20 : 16);
-      for (const path of contoursAt(field, dx, dy, -.22 + level * .047)) {
-        const lengths = [0];
-        for (let i = 1; i < path.length; i++) lengths.push(lengths[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]));
-        const total = lengths.at(-1);
-        if (total < pitch * 2) continue;
-        const count = Math.floor(total / pitch);
-        const spacing = total / count;
-        for (let i = 0; i < count; i++) {
-          const distance = (i + .5) * spacing;
-          const [x, y] = pointOnContour(path, distance, lengths);
-          const before = pointOnContour(path, Math.max(0, distance - width * .28), lengths);
-          const after = pointOnContour(path, Math.min(total - .001, distance + width * .28), lengths);
-          let angle = Math.atan2(after[1] - before[1], after[0] - before[0]);
-          // Keep every wordmark readable regardless of the contour's winding.
-          if (angle > Math.PI / 2) angle -= Math.PI;
-          if (angle < -Math.PI / 2) angle += Math.PI;
-          const central = Math.exp(-(((x / w - .5) ** 2) / .06 + ((y / h - .5) ** 2) / .16));
-          const caption = Math.exp(-((x / Math.min(280, w * .72)) ** 4 + ((y - 130) / 130) ** 4));
-          const alpha = (major ? .58 : small ? .32 : .44) * (1 - central * .32) * (1 - caption * .97);
-          if (alpha < .045 || !reserve(x, y, width, width * ratio, angle)) continue;
-          ctx.save();
-          ctx.translate(x, y);
-          ctx.rotate(angle);
-          ctx.globalAlpha = alpha;
-          ctx.drawImage(this.wordmark, -width / 2, -width * ratio / 2, width, width * ratio);
-          ctx.restore();
-        }
-      }
-    }
-  }
-
-  restart() {
-    cancelAnimationFrame(this.frame);
-    if (!this.width) return;
-    this.paint(0);
-    if (this.visible && !document.hidden && !motionPreference.matches) this.frame = requestAnimationFrame(this.draw);
-  }
-
-  paint(time) {
-    const ctx = this.context;
-    const w = this.width, h = this.height;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this.surface, 0, 0);
-    if (motionPreference.matches) return;
-    ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
-    const x = w * (.45 + Math.sin(time / 28000) * .17);
-    const light = ctx.createRadialGradient(x, h * .38, 0, x, h * .38, w * .7);
-    light.addColorStop(0, "rgba(255,255,247,.20)");
-    light.addColorStop(1, "rgba(255,255,247,0)");
-    ctx.fillStyle = light;
-    ctx.fillRect(0, 0, w, h);
-  }
-
-  draw(time) {
-    if (!this.visible || document.hidden || motionPreference.matches) return;
-    if (time - this.lastFrame > 80) { this.paint(time); this.lastFrame = time; }
-    this.frame = requestAnimationFrame(this.draw);
-  }
+function paint(canvas) {
+  const { width, height } = canvas.getBoundingClientRect();
+  if (!width || !height) return;
+  const density = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * density);
+  canvas.height = Math.round(height * density);
+  const context = canvas.getContext("2d", { alpha: false });
+  if (!context) return;
+  context.fillStyle = "#eff0ee";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  if (!artwork.complete || !artwork.naturalWidth) return;
+  const scale = Math.max(canvas.width / artwork.naturalWidth, canvas.height / artwork.naturalHeight);
+  const renderedWidth = artwork.naturalWidth * scale;
+  const renderedHeight = artwork.naturalHeight * scale;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(artwork, (canvas.width - renderedWidth) / 2,
+    (canvas.height - renderedHeight) / 2, renderedWidth, renderedHeight);
 }
 
-document.querySelectorAll("[data-terrain]").forEach((canvas) => new Terrain(canvas));
+const observer = new ResizeObserver((entries) => entries.forEach(({ target }) => paint(target)));
+surfaces.forEach((canvas) => observer.observe(canvas));
+artwork.onload = () => surfaces.forEach(paint);
+artwork.src = new URL("./assets/vitalini-halftone-bg.png", import.meta.url).href;

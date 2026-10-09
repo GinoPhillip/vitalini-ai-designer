@@ -68,6 +68,8 @@ async function routeUser(request, env, user) {
   if (request.method === "GET" && path === "/api/auth/session") return getSessionSummary(env, user);
   if (request.method === "POST" && path === "/api/auth/logout") return logoutUser(request, env);
   if (request.method === "GET" && path === "/api/account") return getAccount(env, user);
+  if (request.method === "GET" && path === "/api/workspace") return getWorkspace(request, env, user);
+  if (request.method === "POST" && path === "/api/workspace") return saveWorkspace(request, env, user);
   if (request.method === "POST" && path === "/api/generate") return generateDesign(request, env, user);
   if (request.method === "GET" && path === "/api/designs") return listDesigns(request, env, user);
   if (request.method === "GET" && /^\/api\/designs\/[^/]+\/image$/.test(path)) return getDesignImage(request, env, user);
@@ -367,6 +369,59 @@ async function listLogos(env, user) {
     "SELECT id, name, content_type, size_bytes, created_at FROM logos WHERE user_id = ? ORDER BY created_at DESC"
   ).bind(user.id).all();
   return json({ logos: results.map((logo) => ({ ...logo, fileUrl: `/api/logos/${logo.id}/file` })) });
+}
+
+export function normalizeWorkspaceEdit(input) {
+  if (!input || typeof input !== "object" || !Array.isArray(input.logos) || input.logos.length > 8) return null;
+  const logos = [];
+  const instances = new Set();
+  for (const item of input.logos) {
+    if (!item || !UUID_RE.test(item.id) || !UUID_RE.test(item.instanceId) || instances.has(item.instanceId)) return null;
+    if (![item.x, item.y, item.size, item.rotation].every(Number.isFinite)) return null;
+    if (item.x < 0 || item.x > 100 || item.y < 0 || item.y > 100 || item.size < 1 || item.size > 45 || Math.abs(item.rotation) > 180) return null;
+    instances.add(item.instanceId);
+    logos.push({ id: item.id, instanceId: item.instanceId, x: item.x, y: item.y, size: item.size, rotation: item.rotation });
+  }
+  const colors = Array.isArray(input.colors) ? input.colors : [];
+  if (colors.length > 2 || colors.some((color) => !/^#[0-9a-f]{6}$/i.test(color))) return null;
+  return { logos, colors, message: String(input.message || "").slice(0, 2000), prompt: String(input.prompt || "").slice(0, 800) };
+}
+
+async function getWorkspace(request, env, user) {
+  const url = new URL(request.url);
+  let modelId = url.searchParams.get("model_id");
+  let designId = url.searchParams.get("design_id") || null;
+  if (!modelId) {
+    const last = await env.DB.prepare("SELECT model_id, design_id FROM client_workspaces WHERE user_id = ?").bind(user.id).first();
+    if (!last) return json({ workspace: null });
+    modelId = last.model_id; designId = last.design_id;
+  }
+  if (!MODELS[modelId] || (designId && !UUID_RE.test(designId))) return json({ error: "Invalid saved workspace." }, 400);
+  if (designId && !await env.DB.prepare("SELECT id FROM designs WHERE id = ? AND user_id = ? AND model_id = ?").bind(designId, user.id, modelId).first()) return json({ error: "Design not found." }, 404);
+  const key = designId || `base:${modelId}`;
+  const row = await env.DB.prepare("SELECT edit_json, updated_at FROM design_edits WHERE user_id = ? AND design_key = ?").bind(user.id, key).first();
+  return json({ workspace: { modelId, designId, edit: parseJsonObject(row?.edit_json), updatedAt: row?.updated_at || null } });
+}
+
+async function saveWorkspace(request, env, user) {
+  const payload = await readJson(request, 20_000);
+  if (payload instanceof Response) return payload;
+  const modelId = String(payload.modelId || "");
+  const designId = payload.designId || null;
+  const edit = normalizeWorkspaceEdit(payload.edit);
+  if (!MODELS[modelId] || (designId && (typeof designId !== "string" || !UUID_RE.test(designId))) || !edit) return json({ error: "Invalid saved workspace." }, 400);
+  if (designId && !await env.DB.prepare("SELECT id FROM designs WHERE id = ? AND user_id = ? AND model_id = ?").bind(designId, user.id, modelId).first()) return json({ error: "Design not found." }, 404);
+  for (const id of new Set(edit.logos.map((logo) => logo.id))) {
+    if (!await env.DB.prepare("SELECT id FROM logos WHERE id = ? AND user_id = ?").bind(id, user.id).first()) return json({ error: "Logo not found." }, 404);
+  }
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO design_edits (user_id, design_key, model_id, design_id, edit_json, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, design_key) DO UPDATE SET edit_json = excluded.edit_json, updated_at = excluded.updated_at")
+      .bind(user.id, designId || `base:${modelId}`, modelId, designId, JSON.stringify(edit), now),
+    env.DB.prepare("INSERT INTO client_workspaces (user_id, model_id, design_id, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET model_id = excluded.model_id, design_id = excluded.design_id, updated_at = excluded.updated_at")
+      .bind(user.id, modelId, designId, now)
+  ]);
+  return json({ ok: true, updatedAt: now });
 }
 
 async function uploadLogo(request, env, user) {

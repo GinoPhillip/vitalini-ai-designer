@@ -7,7 +7,7 @@
     <meta name="description" content="Your mountain. Your signature. Create a custom Vitalini jacket in an interactive 3D design studio." />
     <title>Vitalini — Custom Studio</title>
     <link rel="preconnect" href="https://static.sketchfab.com" />
-    <link rel="stylesheet" href="./styles.css?v=20261008-3" />
+    <link rel="stylesheet" href="./styles.css?v=20261009-1" />
   </head>
   <body class="is-auth-loading">
     <section class="auth-gate" id="authGate" aria-label="Client access">
@@ -52,7 +52,6 @@
         <div class="stage-topline"><span class="stage-edition">VITALINI <i></i> CUSTOM STUDIO</span><button id="focusButton" class="stage-tool" type="button" aria-label="Expand jacket preview" aria-pressed="false"><span aria-hidden="true">⤢</span> <b>Focus view</b></button></div>
         <div class="stage-caption"><span class="eyebrow">3D PREVIEW</span><h2 id="stageModelName">VP9655</h2><span id="stageDesignLabel">Base garment</span></div>
         <div class="design-switcher" aria-label="Saved design navigation"><div class="design-switcher__count"><span>Your designs</span><strong id="historyPosition">0 / 0</strong></div><div class="design-switcher__nav"><button id="previousButton" type="button" aria-label="Previous design" disabled>←</button><button id="nextButton" type="button" aria-label="Next design" disabled>→</button></div></div>
-        <span class="stage-hint">Drag to rotate <i></i> Scroll to explore</span>
         <div class="generation-progress" id="generationProgress" role="status" hidden><span class="generation-orbit" aria-hidden="true"></span><div><strong>Bringing your idea to life</strong><span id="generationPhase">Finding the first lines…</span></div><span class="generation-elapsed" id="generationElapsed">0:00</span></div>
       </section>
       <aside class="studio" aria-label="Design controls">
@@ -84,19 +83,21 @@
             <div class="section-heading"><span class="eyebrow">FINISHES</span><h2>Color & finish.</h2><p>Set the contrast panels and zipper colors.</p></div>
             <div id="materialControls" class="material-controls"></div>
             <div class="detail-note"><span aria-hidden="true">◌</span><p>Trim colors update directly on your jacket. Try a quiet contrast, or one unexpected pop of color.</p></div>
-            <button class="workflow-next" data-go-tab="logos" type="button">Add your signature <span aria-hidden="true">→</span></button>
+            <button class="workflow-next" data-go-tab="logos" type="button">Add your logos <span aria-hidden="true">→</span></button>
           </section>
           <section class="workflow-panel logo-section" id="panel-logos" role="tabpanel" aria-labelledby="tab-logos" hidden>
             <div class="section-heading"><span class="eyebrow">PERSONALIZATION</span><h2>Logos & placement.</h2><p>Upload up to eight logos and position each on the garment layout.</p></div>
             <input id="logoInput" type="file" accept="image/png,image/jpeg,image/webp" hidden />
             <button class="secondary-button upload-button" id="logoUploadButton" type="button">Add logo</button>
             <p class="upload-help">PNG, JPG or WebP · Up to 5 MB · Transparent PNG works best</p>
+            <section class="logo-library" aria-label="Your saved logos"><div class="logo-library__heading"><h3>Your saved logos</h3><span>Tap to add</span></div><div id="logoLibraryList" class="logo-library__list"></div><p id="logoLibraryEmpty">Logos you upload are saved here for every design.</p></section>
             <div class="logo-editor" id="logoEditor" hidden>
-              <p class="logo-editor__hint">Select a logo, then drag it on the flat layout.</p>
+              <p class="logo-editor__hint">Drag a logo to move it. Use the sliders to resize or rotate.</p>
               <canvas id="logoPreview" width="960" height="960" tabindex="0" aria-label="Logo placement editor. Select a logo and use arrow keys to move it, or drag with your pointer."></canvas>
               <div class="logo-layer-list" id="logoLayerList" aria-label="Uploaded logos"></div>
-              <div class="logo-editor__meta"><span id="logoName">Selected logo</span><button id="logoRemoveButton" type="button">Remove</button></div>
-              <label class="range-field"><span>Selected logo size <output id="logoSizeValue">18%</output></span><input id="logoSize" type="range" min="1" max="45" value="18" /></label>
+              <div class="logo-editor__meta"><span id="logoName">Selected logo</span><span id="workspaceSaveStatus" role="status" aria-live="polite">Saved automatically</span></div>
+              <label class="range-field"><span>Selected logo size <output id="logoSizeValue">18%</output></span><input id="logoSize" aria-label="Selected logo size" type="range" min="1" max="45" value="18" /></label>
+              <label class="range-field"><span>Selected logo rotation <output id="logoRotationValue">0°</output></span><input id="logoRotation" aria-label="Selected logo rotation" type="range" min="-180" max="180" value="0" /></label>
             </div>
             <button class="workflow-next" data-go-tab="review" type="button">Review your design <span aria-hidden="true">→</span></button>
           </section>
@@ -125,7 +126,7 @@
     </aside>
     <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
     <script src="./config.js"></script>
-    <script type="module" src="./terrain.js?v=20261008-5"></script>
-    <script type="module" src="./app.js?v=20261008-3"></script>
+    <script type="module" src="./terrain.js?v=20261009-1"></script>
+    <script type="module" src="./app.js?v=20261009-1"></script>
   </body>
 </html>

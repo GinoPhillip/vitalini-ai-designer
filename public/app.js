@@ -1,4 +1,5 @@
-import { t } from "./language.js?v=20261008-3";
+import { t } from "./language.js?v=20261009-1";
+import { normalizeRotation, rotatedExtent, logoLocalPoint } from "./logo-geometry.js?v=20261009-1";
 
 const API_BASE = (window.VITALINI_API_BASE || "").replace(/\/$/, "");
 const SESSION_KEY = "vitalini_client_session_v1";
@@ -8,6 +9,10 @@ let logoRenderSequence = 0;
 let generationClock = null;
 let generationStartedAt = 0;
 let historySequence = 0;
+let workspaceTimer = null;
+let workspaceQueue = Promise.resolve();
+let draftCache = { last: null, edits: {}, pending: {} };
+const logoAssets = new Map();
 
 const CATALOG = {
   Jackets: [
@@ -70,8 +75,9 @@ const elements = {
   logoPreview: document.querySelector("#logoPreview"),
   logoLayerList: document.querySelector("#logoLayerList"),
   logoName: document.querySelector("#logoName"),
-  logoRemove: document.querySelector("#logoRemoveButton"),
+  logoLibrary: document.querySelector("#logoLibraryList"),
   logoSize: document.querySelector("#logoSize"),
+  logoRotation: document.querySelector("#logoRotation"),
   requestMessage: document.querySelector("#requestMessage"),
   requestButton: document.querySelector("#requestButton"),
   designStatus: document.querySelector("#designStatus"),
@@ -108,7 +114,8 @@ const state = {
   activeTab: "design",
   applyingHistory: false,
   historyLoading: false,
-  submittingRequest: false
+  submittingRequest: false,
+  library: [], restoring: true, restoreTarget: null
 };
 
 const designerId = getDesignerId();
@@ -254,18 +261,20 @@ function activateWorkspace(user, usage) {
 }
 
 async function logout() {
+  rememberWorkspace();
+  await flushWorkspace();
   try { await apiFetch("/api/auth/logout", { method: "POST" }); } catch { /* Local logout still succeeds. */ }
   closeAccount();
   clearSession();
   location.reload();
 }
 
-function initialize() {
+async function initialize() {
   if (state.initialized) return;
   state.initialized = true;
   elements.type.innerHTML = Object.keys(CATALOG).map((name) => `<option value="${name}">${name}</option>`).join("");
   renderSelectPicker(elements.type);
-  populateModels();
+  populateModels(false);
 
   elements.type.addEventListener("change", populateModels);
   elements.model.addEventListener("change", () => switchModel(elements.model.value));
@@ -275,15 +284,18 @@ function initialize() {
   elements.next.addEventListener("click", () => showHistory(state.historyIndex - 1));
   elements.logoUpload.addEventListener("click", () => elements.logoInput.click());
   elements.logoInput.addEventListener("change", handleLogoUpload);
-  elements.logoRemove.addEventListener("click", removeLogo);
   elements.logoSize.addEventListener("input", updateLogoSize);
+  elements.logoRotation.addEventListener("input", updateLogoRotation);
   elements.logoPreview.addEventListener("pointerdown", beginLogoDrag);
   elements.logoPreview.addEventListener("pointermove", moveLogoDrag);
   elements.logoPreview.addEventListener("pointerup", endLogoDrag);
   elements.logoPreview.addEventListener("pointercancel", endLogoDrag);
   elements.logoPreview.addEventListener("keydown", moveLogoWithKeyboard);
   wireStudioWorkflow();
-  elements.requestMessage.addEventListener("input", updateRequestState);
+  elements.requestMessage.addEventListener("input", () => { updateRequestState(); rememberWorkspace(); });
+  elements.prompt.addEventListener("input", () => rememberWorkspace());
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flushWorkspace(); });
+  window.addEventListener("pagehide", flushWorkspace);
   elements.requestButton.addEventListener("click", submitDesignRequest);
   elements.accountButton.addEventListener("click", openAccount);
   elements.logout.addEventListener("click", logout);
@@ -292,6 +304,7 @@ function initialize() {
     button.addEventListener("click", () => {
       elements.prompt.value = button.dataset.prompt;
       updatePromptState();
+      rememberWorkspace();
       elements.prompt.focus({ preventScroll: true });
     });
   });
@@ -314,6 +327,7 @@ function initialize() {
   });
   updatePromptState();
   updateRequestState();
+  await restoreWorkspace();
 }
 
 function wireStudioWorkflow() {
@@ -348,7 +362,7 @@ function setStudioTab(name) {
   document.querySelectorAll(".workflow-panel").forEach((panel) => { panel.hidden = panel.id !== `panel-${name}`; });
   document.querySelector(".studio__content").scrollTop = 0;
   if (name === "review") updateReview();
-  if (name === "logos") renderLogoEditor();
+  if (name === "logos") { renderLogoEditor(); renderLogoLibrary(); }
 }
 
 function toggleFocusView(force) {
@@ -387,6 +401,7 @@ function moveLogoWithKeyboard(event) {
   clampLogo(logo);
   renderLogoEditor();
   scheduleLogoComposite();
+  rememberWorkspace();
 }
 
 function trapAccountFocus(event) {
@@ -396,17 +411,18 @@ function trapAccountFocus(event) {
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
 }
 
-function populateModels() {
+function populateModels(boot = true) {
   const models = CATALOG[elements.type.value] || [];
   elements.model.innerHTML = models.map((model) => `<option value="${model.id}">${model.name}</option>`).join("");
   renderSelectPicker(elements.model);
-  if (models[0]) switchModel(models[0].id);
+  if (boot && models[0]) switchModel(models[0].id);
 }
 
 function switchModel(modelId) {
   if (state.generating || state.applyingHistory || state.submittingRequest) return;
   const model = (CATALOG[elements.type.value] || []).find((item) => item.id === modelId);
   if (!model) return;
+  if (state.model && !state.restoring) { rememberWorkspace(); flushWorkspace(); }
   state.model = model;
   state.api = null;
   state.viewerReady = false;
@@ -418,6 +434,13 @@ function switchModel(modelId) {
   historySequence++;
   state.applyingHistory = false;
   state.currentTexture = null;
+  state.logos = [];
+  state.selectedLogoId = null;
+  logoRenderSequence++;
+  clearTimeout(logoRenderTimer);
+  elements.prompt.value = "";
+  elements.requestMessage.value = "";
+  elements.logoEditor.hidden = true;
   document.querySelector("#stageModelName").textContent = model.name;
   elements.designStatus.textContent = "Draft";
   elements.designStatus.classList.remove("is-executive");
@@ -479,6 +502,7 @@ function bootViewer(model) {
           elements.iframe.classList.add("is-ready");
           updatePromptState();
           syncMaterialColors();
+          state.defaultColors = [...elements.materialControls.querySelectorAll(".color-picker")].map((picker) => picker.dataset.color);
           loadHistory();
         });
       });
@@ -529,6 +553,7 @@ function renderMaterialControls() {
         event.stopPropagation();
         setPickerColor(picker, option.dataset.color);
         applyColor(picker.dataset.material, option.dataset.color);
+        rememberWorkspace();
         closeColorPickers();
         trigger.focus();
       });
@@ -692,7 +717,8 @@ async function generateDesign() {
     state.history.unshift(payload.design);
     state.historyIndex = 0;
     if (payload.usage) state.usage = payload.usage;
-    await applyDesign(payload.design);
+    await applyDesign(payload.design, { fresh: true });
+    rememberWorkspace();
     setStatus("Texture generated and projected onto the jacket.");
   } catch (error) {
     setStatus(error.message || "Generation failed.", true);
@@ -700,6 +726,99 @@ async function generateDesign() {
     setGenerating(false);
     updateHistoryUI();
   }
+}
+
+function workspaceKey(modelId = state.model?.id, designId = state.currentTexture?.id) {
+  return designId || `base:${modelId}`;
+}
+
+function cacheWorkspace() {
+  try { localStorage.setItem(`vitalini_workspace_v2:${state.user.id}`, JSON.stringify(draftCache)); }
+  catch { /* Account storage remains available when browser storage is full. */ }
+}
+
+function rememberWorkspace() {
+  if (state.restoring || state.applyingHistory || state.historyLoading || !state.model || !state.user) return;
+  const snapshot = { modelId: state.model.id, designId: state.currentTexture?.id || null, edit: {
+    logos: state.logos.map(({ id, instanceId, x, y, size, rotation }) => ({ id, instanceId, x, y, size, rotation })),
+    colors: [...elements.materialControls.querySelectorAll(".color-picker")].map((picker) => picker.dataset.color),
+    message: elements.requestMessage.value, prompt: elements.prompt.value
+  } };
+  const key = workspaceKey(snapshot.modelId, snapshot.designId);
+  draftCache.last = snapshot;
+  draftCache.edits[key] = snapshot.edit;
+  draftCache.pending[key] = snapshot;
+  cacheWorkspace();
+  document.querySelector("#workspaceSaveStatus").textContent = "Saving…";
+  clearTimeout(workspaceTimer);
+  workspaceTimer = setTimeout(flushWorkspace, 250);
+}
+
+function flushWorkspace() {
+  clearTimeout(workspaceTimer);
+  const entries = Object.entries(draftCache.pending);
+  const lastKey = draftCache.last && workspaceKey(draftCache.last.modelId, draftCache.last.designId);
+  entries.sort(([a], [b]) => Number(a === lastKey) - Number(b === lastKey));
+  for (const [key, snapshot] of entries) {
+    const serialized = JSON.stringify(snapshot);
+    workspaceQueue = workspaceQueue.then(async () => {
+      try {
+        const response = await apiFetch("/api/workspace", { method: "POST", keepalive: true,
+          headers: { "content-type": "application/json" }, body: serialized });
+        if (!response.ok) throw new Error("Save failed");
+        if (JSON.stringify(draftCache.pending[key]) === serialized) delete draftCache.pending[key];
+        cacheWorkspace();
+        document.querySelector("#workspaceSaveStatus").textContent = Object.keys(draftCache.pending).length ? "Saving…" : "Saved automatically";
+      } catch {
+        document.querySelector("#workspaceSaveStatus").textContent = "Saved on this device. Account sync pending.";
+      }
+    });
+  }
+  return workspaceQueue;
+}
+
+async function restoreWorkspace() {
+  try { const local = JSON.parse(localStorage.getItem(`vitalini_workspace_v2:${state.user.id}`));
+    if (local?.edits && local?.pending) draftCache = local; } catch { /* No local draft. */ }
+  const [saved, library] = await Promise.all([
+    apiFetch("/api/workspace").then((r) => r.ok ? r.json() : null).catch(() => null),
+    apiFetch("/api/logos").then((r) => r.ok ? r.json() : null).catch(() => null)
+  ]);
+  state.library = library?.logos || [];
+  state.restoreTarget = Object.keys(draftCache.pending).length ? draftCache.last : saved?.workspace || draftCache.last;
+  const modelId = state.restoreTarget?.modelId;
+  if (CATALOG.Jackets.some((model) => model.id === modelId)) elements.model.value = modelId;
+  renderSelectPicker(elements.model);
+  switchModel(elements.model.value);
+}
+
+async function savedEdit(designId) {
+  const key = workspaceKey(state.model.id, designId);
+  if (draftCache.pending[key]) return draftCache.pending[key].edit;
+  try {
+    const response = await apiFetch(`/api/workspace?model_id=${state.model.id}&design_id=${designId || ""}`);
+    if (response.ok) return (await response.json()).workspace?.edit || null;
+  } catch { /* Use the locally saved edit when offline. */ }
+  return draftCache.edits[key] || null;
+}
+
+async function restoreEdit(edit, guard) {
+  const logos = await Promise.all((edit?.logos || []).map(async (placement) => {
+    const asset = await getLogoAsset(placement.id);
+    return { ...asset, ...placement, instanceId: placement.instanceId || crypto.randomUUID(), rotation: placement.rotation || 0 };
+  }));
+  if (guard && (guard.sequence !== historySequence || guard.boot !== state.bootSequence)) return false;
+  state.logos = logos;
+  state.selectedLogoId = logos[0]?.instanceId || null;
+  elements.logoEditor.hidden = !logos.length;
+  elements.requestMessage.value = edit?.message || "";
+  elements.prompt.value = edit?.prompt || "";
+  [...elements.materialControls.querySelectorAll(".color-picker")].forEach((picker, index) => {
+    const color = edit?.colors?.[index] || state.defaultColors?.[index] || "#ffffff";
+    setPickerColor(picker, color); applyColor(picker.dataset.material, color);
+  });
+  renderLogoLayers();
+  return true;
 }
 
 async function loadHistory() {
@@ -721,14 +840,33 @@ async function loadHistory() {
   state.historyLoading = false;
   updatePromptState();
   updateHistoryUI();
+  const target = state.restoreTarget;
+  state.restoreTarget = null;
+  if (target?.modelId === modelId) {
+    const index = state.history.findIndex((item) => item.id === target.designId);
+    if (index >= 0) await showHistory(index);
+    else { await restoreEdit(target.edit || await savedEdit(null)); await renderLogoEditor(); }
+  } else { await restoreEdit(await savedEdit(null)); await renderLogoEditor(); }
+  if (sequence !== state.bootSequence) return;
+  state.restoring = false;
+  updatePromptState();
+  updateHistoryUI();
+  rememberWorkspace();
+  if (state.activeTab === "logos") renderLogoLibrary();
+  updateRequestState();
 }
 
 async function showHistory(index) {
   if (index < -1 || index >= state.history.length || state.generating || state.applyingHistory || state.submittingRequest) return;
+  rememberWorkspace();
   state.applyingHistory = true;
+  clearTimeout(logoRenderTimer);
+  logoRenderSequence++;
   const sequence = ++historySequence;
   const boot = state.bootSequence;
   updatePromptState();
+  updateHistoryUI();
+  await flushWorkspace();
   if (index === -1) {
     state.historyIndex = -1;
     state.currentTexture = null;
@@ -738,12 +876,14 @@ async function showHistory(index) {
     elements.designStatus.classList.remove("is-executive");
     try {
       await resetDesignMaterial(state.model.designMaterial);
+      await restoreEdit(await savedEdit(null), { sequence, boot });
       renderLogoEditor();
       setStatus("Blank jacket ready. Use the back arrow to revisit saved designs.");
     } catch {
       setStatus("The blank jacket could not be restored.", true);
     }
     state.applyingHistory = false;
+    rememberWorkspace();
     updatePromptState();
     updateHistoryUI();
     updateReview();
@@ -760,6 +900,7 @@ async function showHistory(index) {
   } finally {
     if (sequence === historySequence && boot === state.bootSequence) {
       state.applyingHistory = false;
+      rememberWorkspace();
       updatePromptState();
       updateHistoryUI();
     }
@@ -767,12 +908,14 @@ async function showHistory(index) {
 }
 
 async function applyDesign(design, guard) {
+  const edit = guard?.fresh ? null : await savedEdit(design.id);
   const response = await apiFetch(design.imageUrl);
   if (!response.ok) throw new Error("Texture image is unavailable.");
   const blob = await response.blob();
   const dataUrl = await blobToDataUrl(blob);
   const baseImage = await loadImage(dataUrl);
-  if (guard && (guard.sequence !== historySequence || guard.boot !== state.bootSequence)) return;
+  if (guard && !guard.fresh && (guard.sequence !== historySequence || guard.boot !== state.bootSequence)) return;
+  if (!guard?.fresh && !await restoreEdit(edit, guard)) return;
   state.currentTexture = { dataUrl, baseDataUrl: dataUrl, baseImage, prompt: design.prompt, id: design.id, status: design.status || "draft" };
   if (state.logos.length) {
     await renderLogoComposite(true);
@@ -781,6 +924,7 @@ async function applyDesign(design, guard) {
     await renderLogoEditor();
   }
   elements.prompt.value = design.prompt || elements.prompt.value;
+  if (edit?.prompt) elements.prompt.value = edit.prompt;
   elements.designStatus.textContent = state.currentTexture.status === "executive" ? "Executive" : "Draft";
   elements.designStatus.classList.toggle("is-executive", state.currentTexture.status === "executive");
   updatePromptState();
@@ -870,7 +1014,7 @@ function setStatus(message, isError = false) {
 
 function updatePromptState() {
   elements.promptCount.textContent = `${elements.prompt.value.length} / 800`;
-  const busy = state.generating || state.applyingHistory || state.submittingRequest;
+  const busy = state.generating || state.applyingHistory || state.submittingRequest || state.historyLoading || state.restoring;
   elements.generate.disabled = busy || state.historyLoading || !state.viewerReady || elements.prompt.value.trim().length < 3;
   [elements.type, elements.model].forEach((select) => {
     select.disabled = busy;
@@ -878,14 +1022,17 @@ function updatePromptState() {
     if (trigger) trigger.disabled = busy || select.options.length === 0;
   });
   document.querySelectorAll("[data-prompt]").forEach((button) => button.classList.toggle("is-selected", button.dataset.prompt === elements.prompt.value));
+  elements.logoUpload.disabled = busy;
+  elements.logoSize.disabled = busy;
+  elements.logoRotation.disabled = busy;
 }
 
 function updateHistoryUI() {
   const total = state.history.length;
   const position = state.historyIndex < 0 ? 0 : total - state.historyIndex;
   elements.historyPosition.textContent = `${position} / ${total}`;
-  elements.previous.disabled = state.generating || state.applyingHistory || state.submittingRequest || !total || state.historyIndex >= total - 1;
-  elements.next.disabled = state.generating || state.applyingHistory || state.submittingRequest || state.historyIndex < 0;
+  elements.previous.disabled = state.generating || state.applyingHistory || state.submittingRequest || state.historyLoading || !total || state.historyIndex >= total - 1;
+  elements.next.disabled = state.generating || state.applyingHistory || state.submittingRequest || state.historyLoading || state.historyIndex < 0;
   updateRequestState();
 }
 
@@ -913,25 +1060,11 @@ async function handleLogoUpload() {
     const response = await apiFetch("/api/logos", { method: "POST", body: form });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Logo upload failed.");
-    const aspect = image.naturalHeight / image.naturalWidth || 1;
-    const offset = ((state.logos.length % 3) - 1) * 7;
-    const logo = {
-      id: payload.logo.id,
-      name: payload.logo.name || file.name,
-      image,
-      dataUrl,
-      x: 50 + offset,
-      y: 50 + offset,
-      size: Math.min(18, 68 / aspect)
-    };
-    clampLogo(logo);
-    state.logos.push(logo);
-    state.selectedLogoId = logo.id;
-    elements.logoEditor.hidden = false;
-    renderLogoLayers();
-    if (state.currentTexture) await renderLogoComposite(true);
-    else await renderLogoEditor();
-    setStatus("Logo added. Drag it on the preview or use the size slider.");
+    const asset = { id: payload.logo.id, name: payload.logo.name || file.name, image, dataUrl };
+    logoAssets.set(asset.id, Promise.resolve(asset));
+    state.library.unshift({ ...payload.logo, name: asset.name });
+    await addLogoAsset(asset.id);
+    renderLogoLibrary();
   } catch (error) {
     setStatus(error.message || "Logo upload failed.", true);
   } finally {
@@ -942,25 +1075,76 @@ async function handleLogoUpload() {
 }
 
 function selectedLogo() {
-  return state.logos.find((logo) => logo.id === state.selectedLogoId) || null;
+  return state.logos.find((logo) => logo.instanceId === state.selectedLogoId) || null;
+}
+
+async function getLogoAsset(id) {
+  if (!logoAssets.has(id)) logoAssets.set(id, (async () => {
+    const entry = state.library.find((logo) => logo.id === id);
+    const response = await apiFetch(`/api/logos/${encodeURIComponent(id)}/file`);
+    if (!response.ok) throw new Error("Saved logo could not be loaded.");
+    const dataUrl = await blobToDataUrl(await response.blob());
+    return { id, name: entry?.name || "Logo", dataUrl, image: await loadImage(dataUrl) };
+  })().catch((error) => { logoAssets.delete(id); throw error; }));
+  return logoAssets.get(id);
+}
+
+async function renderLogoLibrary() {
+  if (state.activeTab !== "logos") return;
+  document.querySelector("#logoLibraryEmpty").hidden = !!state.library.length;
+  elements.logoLibrary.innerHTML = state.library.map((entry) => `<button type="button" class="logo-library__item" data-library-id="${entry.id}" aria-label="${escapeMarkup(t("Add saved logo") + ": " + entry.name)}"><span class="logo-library__thumbnail"><img alt="" hidden><b aria-hidden="true">+</b></span><span data-no-translate>${escapeMarkup(entry.name)}</span></button>`).join("");
+  for (const button of elements.logoLibrary.querySelectorAll("[data-library-id]")) {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try { await addLogoAsset(button.dataset.libraryId); }
+      catch (error) { setStatus(error.message, true); }
+      finally { button.disabled = false; }
+    });
+    getLogoAsset(button.dataset.libraryId).then((asset) => {
+      if (!button.isConnected) return;
+      const image = button.querySelector("img"); image.src = asset.dataUrl; image.hidden = false;
+    }).catch(() => { /* The add action reports a failed download. */ });
+  }
+}
+
+async function addLogoAsset(id) {
+  if (state.restoring || state.historyLoading || state.applyingHistory || state.submittingRequest) return;
+  if (state.logos.length >= 8) { setStatus("You can place up to eight logos on one design.", true); return; }
+  const modelId = state.model.id, designId = state.currentTexture?.id;
+  const asset = await getLogoAsset(id);
+  if (modelId !== state.model.id || designId !== state.currentTexture?.id || state.logos.length >= 8 || state.applyingHistory || state.historyLoading) return;
+  const aspect = asset.image.naturalHeight / asset.image.naturalWidth || 1;
+  const offset = ((state.logos.length % 3) - 1) * 7;
+  const logo = { ...asset, instanceId: crypto.randomUUID(), x: 50 + offset, y: 50 + offset,
+    size: Math.min(18, 68 / aspect), rotation: 0 };
+  clampLogo(logo);
+  state.logos.push(logo);
+  state.selectedLogoId = logo.instanceId;
+  elements.logoEditor.hidden = false;
+  renderLogoLayers();
+  rememberWorkspace();
+  if (state.currentTexture) await renderLogoComposite(true);
+  else await renderLogoEditor();
+  setStatus("Logo added. Drag to move; use the sliders to resize or rotate.");
 }
 
 function logoMaxSize(logo) {
   const aspect = logo.image.naturalHeight / logo.image.naturalWidth || 1;
-  return Math.max(1, Math.min(45, 88 / aspect));
+  const extent = rotatedExtent(1, aspect, logo.rotation || 0);
+  return Math.max(1, Math.min(45, 88 / (2 * Math.max(extent.x, extent.y))));
 }
 
 function clampLogo(logo) {
   const aspect = logo.image.naturalHeight / logo.image.naturalWidth || 1;
   logo.size = Math.max(1, Math.min(logoMaxSize(logo), Number(logo.size) || 18));
-  const halfWidth = logo.size / 2;
-  const halfHeight = logo.size * aspect / 2;
-  logo.x = Math.max(halfWidth, Math.min(100 - halfWidth, Number(logo.x) || 50));
-  logo.y = Math.max(halfHeight, Math.min(100 - halfHeight, Number(logo.y) || 50));
+  logo.rotation = normalizeRotation(logo.rotation);
+  const extent = rotatedExtent(logo.size, aspect, logo.rotation);
+  logo.x = Math.max(extent.x, Math.min(100 - extent.x, Number.isFinite(logo.x) ? logo.x : 50));
+  logo.y = Math.max(extent.y, Math.min(100 - extent.y, Number.isFinite(logo.y) ? logo.y : 50));
 }
 
 function selectLogo(id) {
-  if (!state.logos.some((logo) => logo.id === id)) return;
+  if (!state.logos.some((logo) => logo.instanceId === id)) return;
   state.selectedLogoId = id;
   renderLogoLayers();
   renderLogoEditor();
@@ -968,17 +1152,20 @@ function selectLogo(id) {
 
 function renderLogoLayers() {
   elements.logoLayerList.innerHTML = state.logos.map((logo, index) => `
-    <button class="logo-layer${logo.id === state.selectedLogoId ? " is-selected" : ""}" type="button" data-logo-id="${logo.id}" aria-pressed="${logo.id === state.selectedLogoId}">
-      <img src="${logo.dataUrl}" alt=""><span>${escapeMarkup(logo.name || `Logo ${index + 1}`)}</span>
-    </button>`).join("");
+    <div class="logo-layer${logo.instanceId === state.selectedLogoId ? " is-selected" : ""}">
+      <button class="logo-layer__select" type="button" data-logo-id="${logo.instanceId}" aria-pressed="${logo.instanceId === state.selectedLogoId}"><img src="${logo.dataUrl}" alt=""><span data-no-translate>${escapeMarkup(logo.name || `Logo ${index + 1}`)}</span></button>
+      <button class="logo-layer__remove" type="button" data-remove-logo="${logo.instanceId}" aria-label="${escapeMarkup(t("Remove logo") + ": " + logo.name)}">×</button>
+    </div>`).join("");
   elements.logoLayerList.querySelectorAll("[data-logo-id]").forEach((button) => button.addEventListener("click", () => selectLogo(button.dataset.logoId)));
+  elements.logoLayerList.querySelectorAll("[data-remove-logo]").forEach((button) => button.addEventListener("click", () => removeLogo(button.dataset.removeLogo)));
   const logo = selectedLogo();
   elements.logoName.textContent = logo?.name || "Selected logo";
-  elements.logoRemove.disabled = !logo;
   if (logo) {
     elements.logoSize.max = String(logoMaxSize(logo));
     elements.logoSize.value = String(logo.size);
     document.querySelector("#logoSizeValue").textContent = `${Math.round(logo.size)}%`;
+    elements.logoRotation.value = String(Math.round(logo.rotation || 0));
+    document.querySelector("#logoRotationValue").textContent = `${Math.round(logo.rotation || 0)}°`;
   }
 }
 
@@ -991,6 +1178,18 @@ function updateLogoSize() {
   document.querySelector("#logoSizeValue").textContent = `${Math.round(logo.size)}%`;
   renderLogoEditor();
   scheduleLogoComposite();
+  rememberWorkspace();
+}
+
+function updateLogoRotation() {
+  const logo = selectedLogo();
+  if (!logo) return;
+  logo.rotation = Number(elements.logoRotation.value);
+  clampLogo(logo);
+  renderLogoLayers();
+  renderLogoEditor();
+  scheduleLogoComposite();
+  rememberWorkspace();
 }
 
 function scheduleLogoComposite() {
@@ -1000,14 +1199,15 @@ function scheduleLogoComposite() {
   }, 170);
 }
 
-async function removeLogo() {
-  const index = state.logos.findIndex((logo) => logo.id === state.selectedLogoId);
+async function removeLogo(instanceId = state.selectedLogoId) {
+  const index = state.logos.findIndex((logo) => logo.instanceId === instanceId);
   if (index < 0) return;
   state.logos.splice(index, 1);
-  state.selectedLogoId = state.logos[Math.min(index, state.logos.length - 1)]?.id || null;
+  state.selectedLogoId = state.logos[Math.min(index, state.logos.length - 1)]?.instanceId || null;
   elements.logoEditor.hidden = state.logos.length === 0;
   elements.logoUpload.textContent = state.logos.length ? "Add another logo" : "Add logo";
   renderLogoLayers();
+  rememberWorkspace();
   if (state.currentTexture) {
     try { await renderLogoComposite(true); } catch (error) { setStatus(error.message || "Logo could not be removed.", true); }
   } else {
@@ -1019,8 +1219,9 @@ async function removeLogo() {
 async function renderLogoComposite(applyToModel) {
   if (!state.currentTexture?.baseDataUrl) return null;
   const sequence = ++logoRenderSequence;
+  const texture = state.currentTexture;
   const dataUrl = await composeCurrentTexture("image/png");
-  if (sequence !== logoRenderSequence) return null;
+  if (sequence !== logoRenderSequence || texture !== state.currentTexture) return null;
   state.currentTexture.dataUrl = dataUrl;
   if (applyToModel) await applyTexture(state.model.designMaterial, dataUrl);
   await renderLogoEditor();
@@ -1046,7 +1247,11 @@ async function composeCurrentTexture(type = "image/png", quality) {
     const height = width * aspect;
     const centerX = canvas.width * (logo.x / 100);
     const centerY = canvas.height * (logo.y / 100);
-    context.drawImage(logo.image, centerX - width / 2, centerY - height / 2, width, height);
+    context.save();
+    context.translate(centerX, centerY);
+    context.rotate((logo.rotation || 0) * Math.PI / 180);
+    context.drawImage(logo.image, -width / 2, -height / 2, width, height);
+    context.restore();
   }
   return canvas.toDataURL(type, quality);
 }
@@ -1076,18 +1281,22 @@ async function renderLogoEditor() {
   }
   for (const logo of state.logos) {
     const rect = getLogoRect(logo);
-    context.drawImage(logo.image, rect.x, rect.y, rect.width, rect.height);
-    if (logo.id === state.selectedLogoId) {
+    context.save();
+    context.translate(rect.centerX, rect.centerY);
+    context.rotate((logo.rotation || 0) * Math.PI / 180);
+    context.drawImage(logo.image, -rect.width / 2, -rect.height / 2, rect.width, rect.height);
+    if (logo.instanceId === state.selectedLogoId) {
       context.save();
       context.strokeStyle = "rgba(255,255,255,.96)";
       context.lineWidth = 7;
-      context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+      context.strokeRect(-rect.width / 2, -rect.height / 2, rect.width, rect.height);
       context.strokeStyle = "#171716";
       context.lineWidth = 3;
       context.setLineDash([12, 9]);
-      context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+      context.strokeRect(-rect.width / 2, -rect.height / 2, rect.width, rect.height);
       context.restore();
     }
+    context.restore();
   }
   if (!state.currentTexture && state.logos.length === 0) {
     context.fillStyle = "#8a8983";
@@ -1106,39 +1315,46 @@ function previewPoint(event) {
 }
 
 function beginLogoDrag(event) {
+  if (event.button !== 0 || state.generating || state.applyingHistory || state.submittingRequest || state.logoDrag) return;
   const point = previewPoint(event);
   const logo = [...state.logos].reverse().find((item) => {
     const rect = getLogoRect(item);
-    return point.x >= rect.x && point.x <= rect.x + rect.width && point.y >= rect.y && point.y <= rect.y + rect.height;
+    const local = logoLocalPoint(point, rect, item.rotation || 0);
+    return Math.abs(local.x) <= rect.width / 2 && Math.abs(local.y) <= rect.height / 2;
   });
   if (!logo) return;
-  selectLogo(logo.id);
+  selectLogo(logo.instanceId);
   const rect = getLogoRect(logo);
-  state.logoDrag = { id: logo.id, offsetX: point.x - rect.centerX, offsetY: point.y - rect.centerY };
+  state.logoDrag = { id: logo.instanceId, pointerId: event.pointerId,
+    offsetX: point.x - rect.centerX, offsetY: point.y - rect.centerY };
   elements.logoPreview.setPointerCapture(event.pointerId);
   elements.logoPreview.classList.add("is-dragging");
   event.preventDefault();
 }
 
 function moveLogoDrag(event) {
-  if (!state.logoDrag) return;
-  const logo = state.logos.find((item) => item.id === state.logoDrag.id);
+  if (!state.logoDrag || event.pointerId !== state.logoDrag.pointerId) return;
+  const logo = state.logos.find((item) => item.instanceId === state.logoDrag.id);
   if (!logo) return;
   const point = previewPoint(event);
-  logo.x = ((point.x - state.logoDrag.offsetX) / elements.logoPreview.width) * 100;
-  logo.y = ((point.y - state.logoDrag.offsetY) / elements.logoPreview.height) * 100;
+  const drag = state.logoDrag;
+  logo.x = ((point.x - drag.offsetX) / elements.logoPreview.width) * 100;
+  logo.y = ((point.y - drag.offsetY) / elements.logoPreview.height) * 100;
   clampLogo(logo);
+  renderLogoLayers();
   renderLogoEditor();
   scheduleLogoComposite();
+  rememberWorkspace();
   event.preventDefault();
 }
 
 function endLogoDrag(event) {
-  if (!state.logoDrag) return;
+  if (!state.logoDrag || event.pointerId !== state.logoDrag.pointerId) return;
   state.logoDrag = null;
   elements.logoPreview.classList.remove("is-dragging");
   if (elements.logoPreview.hasPointerCapture(event.pointerId)) elements.logoPreview.releasePointerCapture(event.pointerId);
   scheduleLogoComposite();
+  rememberWorkspace();
 }
 
 function updateRequestState() {
@@ -1167,7 +1383,7 @@ async function submitDesignRequest() {
         message,
         previewDataUrl,
         placement: {
-          logos: state.logos.map((logo) => ({ id: logo.id, x: logo.x, y: logo.y, size: logo.size, logoName: logo.name })),
+          logos: state.logos.map((logo) => ({ id: logo.id, instanceId: logo.instanceId, x: logo.x, y: logo.y, size: logo.size, rotation: logo.rotation || 0, logoName: logo.name })),
           trimColors: [...elements.materialControls.querySelectorAll(".color-picker")].map((picker) => ({ label: picker.dataset.label, material: picker.dataset.material, color: picker.dataset.color }))
         }
       })
@@ -1175,6 +1391,7 @@ async function submitDesignRequest() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.error || "Request could not be sent.");
     elements.requestMessage.value = "";
+    rememberWorkspace();
     setStatus("Request saved in the Vitalini admin workspace.");
     if (!elements.accountDrawer.hidden) await loadAccount();
   } catch (error) {
