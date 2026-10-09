@@ -1,5 +1,8 @@
 // UI copy only: customer prompts, filenames, usernames and messages are never translated.
 const IT = {
+  "Jacket view controls": "Controlli della vista giacca", "Zoom in": "Avvicina", "Zoom out": "Allontana",
+  "Reset jacket view": "Ripristina vista giacca",
+  "The jacket view could not be adjusted. Please try again.": "Impossibile regolare la vista della giacca. Riprova.",
   "Add your logos": "Aggiungi i tuoi loghi", "Your saved logos": "I tuoi loghi salvati", "Tap to add": "Tocca per aggiungere",
   "Logos you upload are saved here for every design.": "I loghi caricati rimangono disponibili per tutti i tuoi design.",
   "Drag a logo to move it. Use the sliders to resize or rotate.": "Trascina un logo per spostarlo. Usa i cursori per ridimensionarlo o ruotarlo.",

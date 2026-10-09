@@ -1,5 +1,6 @@
-import { t } from "./language.js?v=20261009-1";
+import { t } from "./language.js?v=20261009-2";
 import { normalizeRotation, rotatedExtent, logoLocalPoint } from "./logo-geometry.js?v=20261009-1";
+import { copyCamera, zoomCamera } from "./viewer-camera.js?v=20261009-2";
 
 const API_BASE = (window.VITALINI_API_BASE || "").replace(/\/$/, "");
 const SESSION_KEY = "vitalini_client_session_v1";
@@ -115,7 +116,8 @@ const state = {
   applyingHistory: false,
   historyLoading: false,
   submittingRequest: false,
-  library: [], restoring: true, restoreTarget: null
+  library: [], restoring: true, restoreTarget: null,
+  initialCamera: null, cameraBusy: false
 };
 
 const designerId = getDesignerId();
@@ -347,6 +349,40 @@ function wireStudioWorkflow() {
     document.querySelector(`#tab-${button.dataset.goTab}`).focus();
   }));
   document.querySelector("#focusButton").addEventListener("click", () => toggleFocusView());
+  document.querySelectorAll("[data-camera-action]").forEach((button) => {
+    button.addEventListener("click", () => adjustJacketCamera(button.dataset.cameraAction));
+  });
+}
+
+function updateCameraControls() {
+  document.querySelectorAll("[data-camera-action]").forEach((button) => {
+    button.disabled = !state.viewerReady || !state.initialCamera || state.cameraBusy;
+  });
+}
+
+function adjustJacketCamera(action) {
+  if (!state.viewerReady || !state.initialCamera || state.cameraBusy) return;
+  const api = state.api, boot = state.bootSequence;
+  state.cameraBusy = true;
+  updateCameraControls();
+  const finish = (error) => {
+    if (boot !== state.bootSequence) return;
+    state.cameraBusy = false;
+    updateCameraControls();
+    if (error) setStatus("The jacket view could not be adjusted. Please try again.", true);
+  };
+  const move = (camera) => {
+    if (boot !== state.bootSequence) return;
+    if (!camera) return finish(true);
+    // Instant steps avoid overlapping animations when the user taps repeatedly.
+    api.setCameraLookAt(camera.position, camera.target, 0, finish);
+  };
+  if (action === "reset") return move(copyCamera(state.initialCamera));
+  api.getCameraLookAt((error, camera) => {
+    if (boot !== state.bootSequence) return;
+    if (error) return finish(error);
+    move(zoomCamera(camera, state.initialCamera, action === "in" ? .8 : 1.25));
+  });
 }
 
 function setStudioTab(name) {
@@ -368,6 +404,7 @@ function setStudioTab(name) {
 function toggleFocusView(force) {
   const focused = typeof force === "boolean" ? force : !elements.appShell.classList.contains("is-focused");
   elements.appShell.classList.toggle("is-focused", focused);
+  document.body.classList.toggle("is-preview-focused", focused);
   const button = document.querySelector("#focusButton");
   button.setAttribute("aria-pressed", String(focused));
   button.setAttribute("aria-label", focused ? "Return to design controls" : "Expand jacket preview");
@@ -426,6 +463,9 @@ function switchModel(modelId) {
   state.model = model;
   state.api = null;
   state.viewerReady = false;
+  state.initialCamera = null;
+  state.cameraBusy = false;
+  updateCameraControls();
   state.historyLoading = true;
   elements.iframe.classList.remove("is-ready");
   state.materials.clear();
@@ -463,10 +503,13 @@ function bootViewer(model) {
   const client = new window.Sketchfab("1.12.1", elements.iframe);
   client.init(model.sketchfabUid, {
     autostart: 1,
-    preload: 1,
+    preload: matchMedia("(pointer: coarse)").matches ? 0 : 1,
     dnt: 1,
     transparent: 1,
     camera: 0,
+    navigation: "orbit",
+    scrollwheel: 1,
+    orbit_constraint_pan: 0,
     ui_controls: 1,
     ui_infos: 0,
     ui_help: 0,
@@ -486,6 +529,11 @@ function bootViewer(model) {
       api.start();
       api.addEventListener("viewerready", () => {
         if (sequence !== state.bootSequence) return;
+        api.getCameraLookAt((error, camera) => {
+          if (sequence !== state.bootSequence) return;
+          state.initialCamera = error ? null : copyCamera(camera);
+          updateCameraControls();
+        });
         api.getMaterialList(async (error, materials) => {
           if (error) {
             setStatus("The jacket materials could not be loaded.", true);
@@ -499,6 +547,7 @@ function bootViewer(model) {
           }
           if (sequence !== state.bootSequence) return;
           state.viewerReady = true;
+          updateCameraControls();
           elements.iframe.classList.add("is-ready");
           updatePromptState();
           syncMaterialColors();
