@@ -1,3 +1,4 @@
+import { buildRequestPackage, usedRequestLogos } from "./request-package.js?v=20261009-4";
 const API_BASE = (window.VITALINI_API_BASE || "").replace(/\/$/, "");
 const ADMIN_SESSION_KEY = "vitalini_admin_session_v1";
 let adminToken = sessionStorage.getItem(ADMIN_SESSION_KEY) || "";
@@ -5,6 +6,8 @@ let dashboard = { users: [], invites: [], requests: [] };
 let statusTimer = null;
 let currentUser = null;
 let currentRequest = null;
+let currentRequestLibrary = [];
+let requestExportBusy = false;
 
 const elements = {
   login: document.querySelector("#adminLogin"), shell: document.querySelector("#adminShell"), loginForm: document.querySelector("#adminLoginForm"),
@@ -44,6 +47,7 @@ function wireEvents() {
   document.querySelector("#detailAccountStatus").addEventListener("click", toggleUserStatus);
   document.querySelector("#deleteAccountButton").addEventListener("click", deleteCurrentUser);
   document.querySelector("#requestDetailStatus").addEventListener("change", (event) => currentRequest && updateRequestStatus(currentRequest.id, event.target.value));
+  document.querySelector("#requestPackageButton").addEventListener("click", downloadRequestPackage);
 }
 
 async function login(event) {
@@ -183,6 +187,14 @@ function renderRequestDetail(payload) {
   setPrivateImage(document.querySelector("#requestDetailDesign"), request.design.imageUrl);
 
   const profile = payload.profile;
+  currentRequestLibrary = profile.logos;
+  const usedContainer = document.querySelector("#requestUsedLogos");
+  try {
+    const used = usedRequestLogos(request, profile.logos);
+    usedContainer.innerHTML = used.length ? logoCards(used) : "<p>No client logos were placed in this request.</p>";
+  } catch (error) { usedContainer.textContent = error.message; }
+  document.querySelector("#requestPackageButton").disabled = requestExportBusy;
+  document.querySelector("#requestPackageStatus").textContent = "";
   document.querySelector("#requestProfileName").textContent = profile.user.username;
   document.querySelector("#requestProfileEmail").textContent = profile.user.email;
   document.querySelector("#requestProfileUsage").textContent = `${profile.usage.used} / ${profile.usage.limit}`;
@@ -195,6 +207,39 @@ function renderRequestDetail(payload) {
   const view = document.querySelector("#requestDetailView");
   bindProfileActions(view);
   hydrateImages(view);
+}
+
+async function downloadRequestPackage() {
+  if (!currentRequest || requestExportBusy) return;
+  const request = structuredClone(currentRequest), library = structuredClone(currentRequestLibrary);
+  const button = document.querySelector("#requestPackageButton"), status = document.querySelector("#requestPackageStatus");
+  requestExportBusy = true; button.disabled = true;
+  button.textContent = "Preparing ZIP…";
+  status.textContent = "Fetching the submitted images and logos…";
+  try {
+    const loadPrivate = async (path) => {
+      const response = await adminFetch(path);
+      if (!response.ok) throw new Error("A private image could not be downloaded. Please sign in again or retry.");
+      return response.blob();
+    };
+    const loadTemplate = async (path) => {
+      const response = await fetch(path);
+      if (!response.ok) throw new Error("The jacket UV guide could not be loaded. Please retry.");
+      return response.blob();
+    };
+    const bundle = await buildRequestPackage(request, library, loadPrivate, loadTemplate);
+    const url = URL.createObjectURL(bundle.blob), link = document.createElement("a");
+    link.href = url; link.download = bundle.filename;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    if (currentRequest?.id === request.id) status.textContent = "ZIP downloaded. Extract it and open the rebuild brief in your coding assistant.";
+    showStatus("Vector handoff ZIP downloaded. No AI generation was run.");
+  } catch (error) {
+    if (currentRequest?.id === request.id) status.textContent = error.message;
+    showStatus(error.message, true);
+  } finally {
+    requestExportBusy = false; button.disabled = false; button.textContent = "Download vector handoff ZIP ↓";
+  }
 }
 
 function designCards(items) {

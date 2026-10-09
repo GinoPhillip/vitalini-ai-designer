@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f4f2ed" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Vitalini Client Portal Admin</title>
-    <link rel="stylesheet" href="./admin.css?v=20261008-1" />
+    <link rel="stylesheet" href="./admin.css?v=20261009-4" />
   </head>
   <body>
     <section class="admin-login" id="adminLogin">
@@ -75,13 +75,14 @@
           </div>
 
           <div class="admin-view" id="requestDetailView" hidden>
-            <div class="view-heading"><div><button class="back-button" id="backToRequests" type="button">← Requests</button><span>Focused request</span><h1 id="requestDetailTitle">Design request</h1><p id="requestDetailMeta"></p></div></div>
+            <div class="view-heading"><div><button class="back-button" id="backToRequests" type="button">← Requests</button><span>Focused request</span><h1 id="requestDetailTitle">Design request</h1><p id="requestDetailMeta"></p></div><div class="request-export"><button id="requestPackageButton" type="button">Download vector handoff ZIP ↓</button><small>Brief, client notes, images & used logos</small><span id="requestPackageStatus" role="status"></span></div></div>
             <section class="admin-card request-focus">
               <div class="request-focus__message"><div><span>Client message</span><p id="requestDetailMessage"></p></div><label><span>Status</span><select id="requestDetailStatus" aria-label="Focused request status"></select></label></div>
               <div class="request-focus__media">
                 <figure><img id="requestDetailPreview" alt="Submitted design request preview"><figcaption>Submitted request</figcaption></figure>
                 <figure><img id="requestDetailDesign" alt="Original generated design"><figcaption>Original generated texture</figcaption></figure>
               </div>
+              <section class="request-focus__logos" aria-labelledby="requestUsedLogosTitle"><h2 id="requestUsedLogosTitle">Logos used in this request</h2><div id="requestUsedLogos" class="logo-grid"></div></section>
               <div class="request-focus__design"><strong id="requestDetailModel"></strong><p id="requestDetailPrompt"></p><div id="requestDetailTrims" class="request-trims"></div></div>
             </section>
             <div class="profile-divider"><span>Complete client profile</span><h2 id="requestProfileName">Client</h2><p id="requestProfileEmail"></p></div>
@@ -116,6 +117,6 @@
 
     <script src="./config.js"></script>
     <script type="module" src="./terrain.js?v=20261009-1"></script>
-    <script type="module" src="./admin.js?v=20261008-1"></script>
+    <script type="module" src="./admin.js?v=20261009-4"></script>
   </body>
 </html>
