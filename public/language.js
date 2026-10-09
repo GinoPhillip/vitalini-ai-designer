@@ -1,5 +1,13 @@
 // UI copy only: customer prompts, filenames, usernames and messages are never translated.
 const IT = {
+  "Add your logos": "Aggiungi i tuoi loghi", "Your saved logos": "I tuoi loghi salvati", "Tap to add": "Tocca per aggiungere",
+  "Logos you upload are saved here for every design.": "I loghi caricati rimangono disponibili per tutti i tuoi design.",
+  "Drag a logo to move it. Use the sliders to resize or rotate.": "Trascina un logo per spostarlo. Usa i cursori per ridimensionarlo o ruotarlo.",
+  "Selected logo rotation": "Rotazione del logo selezionato", "Add saved logo": "Aggiungi logo salvato", "Remove logo": "Rimuovi logo",
+  "Saved automatically": "Salvato automaticamente", "Saving…": "Salvataggio…",
+  "Saved on this device. Account sync pending.": "Salvato sul dispositivo. Sincronizzazione in attesa.",
+  "Saved logo could not be loaded.": "Impossibile caricare il logo salvato.",
+  "Logo added. Drag to move; use the sliders to resize or rotate.": "Logo aggiunto. Trascina per spostarlo; usa i cursori per ridimensionarlo o ruotarlo.",
   "Built for performance.": "Nata per la performance.", "Designed by you.": "Disegnata da te.",
   "Your dedicated workspace for custom Vitalini apparel.": "Il tuo spazio dedicato all’abbigliamento personalizzato Vitalini.",
   "3D PREVIEW": "ANTEPRIMA 3D", "Base garment": "Capo base", "Custom artwork": "Grafica personalizzata",
@@ -98,7 +106,7 @@ export function t(text) {
   return source;
 }
 
-const excluded = "script,style,textarea,input,[data-no-translate],#accountUsername,#accountEmail,#accountInitial,#logoName,.logo-layer span";
+const excluded = "script,style,textarea,input,[data-no-translate],#accountUsername,#accountEmail,#accountInitial,#logoName";
 const attributes = ["placeholder", "aria-label", "title", "alt"];
 const originals = new WeakMap();
 function translatePage() {
