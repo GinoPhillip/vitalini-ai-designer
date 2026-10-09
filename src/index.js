@@ -100,6 +100,7 @@ async function routeAdmin(request, env) {
   if (request.method === "GET" && /^\/api\/admin\/designs\/[^/]+\/image$/.test(path)) return getAdminDesignImage(request, env);
   if (request.method === "GET" && /^\/api\/admin\/requests\/[^/]+\/preview$/.test(path)) return getAdminRequestPreview(request, env);
   if (request.method === "GET" && /^\/api\/admin\/logos\/[^/]+\/file$/.test(path)) return getAdminLogoFile(request, env);
+  if (request.method === "GET" && /^\/api\/admin\/handoff-assets\/[^/]+$/.test(path)) return getAdminHandoffAsset(request, env);
   return json({ error: "Not found." }, 404);
 }
 
@@ -697,6 +698,18 @@ async function r2Response(env, objectKey, filename) {
     "content-disposition": `inline; filename="${safeFilename(filename)}"`
   });
   return new Response(object.body, { headers });
+}
+
+async function getAdminHandoffAsset(request, env) {
+  const assets = {
+    "production-layout-vp9655": ["admin-handoff/v1/vp9655-production-layout.png", "VP9655-production-layout.png"],
+    "past-work-example": ["admin-handoff/v1/past-work-example.png", "PAST_WORK-example.png"],
+    "past-work-cut-lines": ["admin-handoff/v1/past-work-cut-lines.png", "PAST_WORK-cut-lines.png"],
+    "procedural-workflow": ["admin-handoff/v1/opus-procedural-workflow.txt", "operator-supplied-workflow.txt"]
+  };
+  const id = pathPart(request, 4);
+  const asset = Object.hasOwn(assets, id) ? assets[id] : null;
+  return asset ? r2Response(env, asset[0], asset[1]) : json({ error: "Reference not found." }, 404);
 }
 
 function serializeDesign(row) {

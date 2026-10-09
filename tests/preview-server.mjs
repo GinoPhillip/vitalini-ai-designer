@@ -34,6 +34,14 @@ const server = http.createServer(async (req, res) => {
   try {
     if (path === "/config.js") { res.writeHead(200, { "content-type": "text/javascript" }); return res.end('window.VITALINI_API_BASE = "";'); }
     if (path === "/api/admin/login") return json(res, { token: "preview-admin-only" });
+    if (path.startsWith("/api/admin/handoff-assets/")) {
+      const name = path.split("/").at(-1);
+      if (name === "procedural-workflow") {
+        res.writeHead(200, { "content-type": "text/plain" }); return res.end("LOCAL FIXTURE: historical workflow reference, not current artwork.\n");
+      }
+      if (!["production-layout-vp9655", "past-work-example", "past-work-cut-lines"].includes(name)) return json(res, { error: "Not found" }, 404);
+      res.writeHead(200, { "content-type": "image/png" }); return res.end(await readFile(resolve(root, "assets/models/VP9655-base.png")));
+    }
     if (path === "/api/admin/users") return json(res, { users: [{ ...user, design_count: designs.length, request_count: 1 }] });
     if (path === "/api/admin/invites") return json(res, { invites: [] });
     if (path === "/api/admin/requests") return json(res, { requests: [{ ...adminProfile().requests[0], username: user.username, model_id: "VP9655" }] });
