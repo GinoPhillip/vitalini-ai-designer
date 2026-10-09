@@ -75,3 +75,34 @@ export function pointOnContour(path, distance, lengths) {
   const fraction = span ? (distance - lengths[segment]) / span : 0;
   return [a[0] + fraction * (b[0] - a[0]), a[1] + fraction * (b[1] - a[1])];
 }
+
+// Reserve padded, rotated wordmarks so neighboring contour bands cannot collide.
+export function createWordmarkSpacing(cellSize = 140) {
+  const cells = new Map();
+  return (x, y, width, height, angle, padding = 5) => {
+    const c = Math.cos(angle), s = Math.sin(angle);
+    const box = { x, y, axes: [[c, s], [-s, c]], half: [width / 2 + padding, height / 2 + padding] };
+    const rx = Math.abs(c) * box.half[0] + Math.abs(s) * box.half[1];
+    const ry = Math.abs(s) * box.half[0] + Math.abs(c) * box.half[1];
+    const keys = [], neighbors = new Set();
+    for (let row = Math.floor((y - ry) / cellSize); row <= Math.floor((y + ry) / cellSize); row++) {
+      for (let col = Math.floor((x - rx) / cellSize); col <= Math.floor((x + rx) / cellSize); col++) {
+        const key = `${col}:${row}`;
+        keys.push(key);
+        for (const other of cells.get(key) || []) neighbors.add(other);
+      }
+    }
+    const radius = (rect, axis) => rect.half.reduce((sum, half, i) =>
+      sum + half * Math.abs(rect.axes[i][0] * axis[0] + rect.axes[i][1] * axis[1]), 0);
+    for (const other of neighbors) {
+      const separated = [...box.axes, ...other.axes].some((axis) =>
+        Math.abs((x - other.x) * axis[0] + (y - other.y) * axis[1]) >= radius(box, axis) + radius(other, axis));
+      if (!separated) return false;
+    }
+    for (const key of keys) {
+      if (!cells.has(key)) cells.set(key, []);
+      cells.get(key).push(box);
+    }
+    return true;
+  };
+}

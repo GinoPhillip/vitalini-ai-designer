@@ -1,5 +1,5 @@
 // An overhead contour map whose paths are composed entirely of Vitalini microprint.
-import { mapElevation, contoursAt, pointOnContour } from "./topography.js?v=20261008-4";
+import { mapElevation, contoursAt, pointOnContour, createWordmarkSpacing } from "./topography.js?v=20261008-5";
 const motionPreference = matchMedia("(prefers-reduced-motion: reduce)");
 
 class Terrain {
@@ -16,6 +16,19 @@ class Terrain {
       stamp.height = logo.naturalHeight;
       const ink = stamp.getContext("2d");
       ink.drawImage(logo, 0, 0);
+      // Ignore the source PNG's transparent margins when sizing and spacing logos.
+      const pixels = ink.getImageData(0, 0, stamp.width, stamp.height).data;
+      let left = stamp.width, top = stamp.height, right = -1, bottom = -1;
+      for (let y = 0; y < stamp.height; y++) for (let x = 0; x < stamp.width; x++) {
+        if (pixels[(y * stamp.width + x) * 4 + 3] > 16) {
+          left = Math.min(left, x); top = Math.min(top, y);
+          right = Math.max(right, x); bottom = Math.max(bottom, y);
+        }
+      }
+      if (right < left) return;
+      stamp.width = right - left + 1;
+      stamp.height = bottom - top + 1;
+      ink.drawImage(logo, left, top, stamp.width, stamp.height, 0, 0, stamp.width, stamp.height);
       ink.globalCompositeOperation = "source-in";
       ink.fillStyle = "#3f505b";
       ink.fillRect(0, 0, stamp.width, stamp.height);
@@ -78,11 +91,16 @@ class Terrain {
     const dx = w / cols, dy = h / rows;
     const field = Array.from({ length: rows + 1 }, (_, row) =>
       Array.from({ length: cols + 1 }, (_, col) => mapElevation(col / cols, row / rows)));
-    for (let level = 0; level < 45; level++) {
-      const major = level % 4 === 0;
-      const width = (major ? 76 : level % 2 ? 30 : 48) * (w < 600 ? .72 : 1);
-      const pitch = width + (major ? 5 : 3);
-      for (const path of contoursAt(field, dx, dy, -.22 + level * .032)) {
+    const reserve = createWordmarkSpacing();
+    // Establish the large contour bands first; medium and small marks fill the gaps.
+    const levels = Array.from({ length: 31 }, (_, i) => i).sort((a, b) =>
+      (a % 3 === 0 ? 0 : a % 6 === 5 ? 2 : 1) - (b % 3 === 0 ? 0 : b % 6 === 5 ? 2 : 1));
+    for (const level of levels) {
+      const major = level % 3 === 0;
+      const small = level % 6 === 5;
+      const width = (major ? 128 : small ? 54 : 92) * (w < 600 ? .62 : 1);
+      const pitch = width + (major ? 20 : 16);
+      for (const path of contoursAt(field, dx, dy, -.22 + level * .047)) {
         const lengths = [0];
         for (let i = 1; i < path.length; i++) lengths.push(lengths[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]));
         const total = lengths.at(-1);
@@ -100,10 +118,12 @@ class Terrain {
           if (angle < -Math.PI / 2) angle += Math.PI;
           const central = Math.exp(-(((x / w - .5) ** 2) / .06 + ((y / h - .5) ** 2) / .16));
           const caption = Math.exp(-((x / Math.min(280, w * .72)) ** 4 + ((y - 130) / 130) ** 4));
+          const alpha = (major ? .58 : small ? .32 : .44) * (1 - central * .32) * (1 - caption * .97);
+          if (alpha < .045 || !reserve(x, y, width, width * ratio, angle)) continue;
           ctx.save();
           ctx.translate(x, y);
           ctx.rotate(angle);
-          ctx.globalAlpha = (major ? .62 : .40) * (1 - central * .32) * (1 - caption * .97);
+          ctx.globalAlpha = alpha;
           ctx.drawImage(this.wordmark, -width / 2, -width * ratio / 2, width, width * ratio);
           ctx.restore();
         }
