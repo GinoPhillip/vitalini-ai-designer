@@ -10,6 +10,8 @@ The client studio uses a four-step workspace: Design, Details, Logos, and Review
 
 The background uses the supplied halftone Vitalini artwork in `public/assets/vitalini-halftone-bg.png`, rendered responsively by `public/terrain.js`. The client interface includes a persistent English/Italian language selector; user-authored text is never translated.
 
+On phones, the preview occupies about three quarters of the screen. A fixed full-screen focus view and touch-sized zoom/reset controls supplement native orbit/pan/pinch gestures. Zoom preserves the current camera direction and target and is bounded relative to the initial view. Coarse-pointer devices avoid preloading all Sketchfab textures before interaction.
+
 Each account has a reusable logo library. Placement, size, rotation, trim colors, and draft text are saved separately for each design (including each model's blank base). The last design reopens after signing in. Authenticated workspace endpoints persist edits in D1; a per-account local cache preserves pending edits when offline. The editor uses drag-to-move and size/rotation sliders, with removal buttons below the canvas rather than floating canvas controls.
 
 For isolated interface testing, run `npm run preview:ui` and open `http://127.0.0.1:4173`. Any nonempty sign-in values enter the fixture workspace. This local server uses placeholder designs and simulates generation, uploads, and requests without contacting production or OpenAI. It is outside `public/` and is never deployed. To test the real backend, use the regular Wrangler development workflow instead.

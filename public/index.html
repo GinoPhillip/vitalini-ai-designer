@@ -7,7 +7,7 @@
     <meta name="description" content="Your mountain. Your signature. Create a custom Vitalini jacket in an interactive 3D design studio." />
     <title>Vitalini — Custom Studio</title>
     <link rel="preconnect" href="https://static.sketchfab.com" />
-    <link rel="stylesheet" href="./styles.css?v=20261009-1" />
+    <link rel="stylesheet" href="./styles.css?v=20261009-2" />
   </head>
   <body class="is-auth-loading">
     <section class="auth-gate" id="authGate" aria-label="Client access">
@@ -51,6 +51,11 @@
         <iframe id="viewer" title="Interactive 3D jacket" allow="autoplay; fullscreen"></iframe>
         <div class="stage-topline"><span class="stage-edition">VITALINI <i></i> CUSTOM STUDIO</span><button id="focusButton" class="stage-tool" type="button" aria-label="Expand jacket preview" aria-pressed="false"><span aria-hidden="true">⤢</span> <b>Focus view</b></button></div>
         <div class="stage-caption"><span class="eyebrow">3D PREVIEW</span><h2 id="stageModelName">VP9655</h2><span id="stageDesignLabel">Base garment</span></div>
+        <div class="viewer-tools" role="group" aria-label="Jacket view controls">
+          <button type="button" data-camera-action="in" aria-label="Zoom in" title="Zoom in" disabled>+</button>
+          <button type="button" data-camera-action="out" aria-label="Zoom out" title="Zoom out" disabled>−</button>
+          <button type="button" data-camera-action="reset" aria-label="Reset jacket view" title="Reset jacket view" disabled>↺</button>
+        </div>
         <div class="design-switcher" aria-label="Saved design navigation"><div class="design-switcher__count"><span>Your designs</span><strong id="historyPosition">0 / 0</strong></div><div class="design-switcher__nav"><button id="previousButton" type="button" aria-label="Previous design" disabled>←</button><button id="nextButton" type="button" aria-label="Next design" disabled>→</button></div></div>
         <div class="generation-progress" id="generationProgress" role="status" hidden><span class="generation-orbit" aria-hidden="true"></span><div><strong>Bringing your idea to life</strong><span id="generationPhase">Finding the first lines…</span></div><span class="generation-elapsed" id="generationElapsed">0:00</span></div>
       </section>
@@ -127,6 +132,6 @@
     <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
     <script src="./config.js"></script>
     <script type="module" src="./terrain.js?v=20261009-1"></script>
-    <script type="module" src="./app.js?v=20261009-1"></script>
+    <script type="module" src="./app.js?v=20261009-2"></script>
   </body>
 </html>
