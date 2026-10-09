@@ -1,4 +1,5 @@
-import { t } from "./language.js?v=20261009-5";
+import { t } from "./language.js?v=20261009-6";
+import { COLORS, hexToRgb, linearRgbToHex, solidColorChannel } from "./material-colors.js?v=20261009-6";
 import { normalizeRotation, rotatedExtent, logoLocalPoint } from "./logo-geometry.js?v=20261009-1";
 import { copyCamera, zoomCamera } from "./viewer-camera.js?v=20261009-2";
 
@@ -39,16 +40,6 @@ const CATALOG = {
     }
   ]
 };
-
-const COLORS = [
-  ["Snow", "#ffffff"], ["Anthracite", "#394d55"], ["Grey", "#abacaa"],
-  ["Deep navy", "#00183f"], ["Capri", "#283484"], ["Marine", "#0966a7"],
-  ["Sky", "#00b4dc"], ["Amalfi", "#08a8ac"], ["Forest", "#027039"],
-  ["Olive", "#6d7e27"], ["Acid green", "#92f28c"], ["Fluo green", "#93c55f"],
-  ["Purple", "#822f8c"], ["Amaranth", "#a90056"], ["Fluo pink", "#ec008b"],
-  ["Limoncello", "#dfe915"], ["Sun", "#f7df18"], ["Saffron", "#ffc507"],
-  ["Orange", "#f37120"], ["Red", "#ed1b23"], ["Burgundy", "#84002c"]
-];
 
 const elements = {
   authGate: document.querySelector("#authGate"),
@@ -617,7 +608,7 @@ function syncMaterialColors() {
     const channel = material && getColorChannel(material);
     const color = channel?.color;
     if (!Array.isArray(color)) return;
-    const hex = rgbToHex(color);
+    const hex = linearRgbToHex(color);
     const closest = COLORS.reduce((best, entry) => colorDistance(hex, entry[1]) < colorDistance(hex, best[1]) ? entry : best, COLORS[0]);
     setPickerColor(picker, closest[1]);
   });
@@ -726,11 +717,7 @@ function applyColor(materialName, hex) {
   const material = findMaterial(materialName);
   if (!state.api || !material) return;
   const channelName = getColorChannelName(material);
-  const channel = { ...(material.channels[channelName] || {}) };
-  channel.enable = true;
-  channel.factor = typeof channel.factor === "number" ? channel.factor : 1;
-  channel.color = hexToRgb(hex);
-  delete channel.texture;
+  const channel = solidColorChannel(material.channels[channelName] || {}, hex);
   material.channels = { ...material.channels, [channelName]: channel };
   state.api.setMaterial(material, (error) => error && console.warn("Material color update failed", error));
 }
@@ -1514,15 +1501,6 @@ function loadImage(dataUrl) {
 
 function escapeMarkup(value) {
   return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]);
-}
-
-function hexToRgb(hex) {
-  const value = Number.parseInt(hex.slice(1), 16);
-  return [(value >> 16 & 255) / 255, (value >> 8 & 255) / 255, (value & 255) / 255];
-}
-
-function rgbToHex(rgb) {
-  return `#${rgb.slice(0, 3).map((value) => Math.round(value * 255).toString(16).padStart(2, "0")).join("")}`;
 }
 
 function colorDistance(a, b) {

@@ -1,3 +1,4 @@
+import { STANDARD_NAMES } from "./material-colors.js?v=20261009-6";
 // UI copy only: customer prompts, filenames, usernames and messages are never translated.
 const IT = {
   "Jacket view controls": "Controlli della vista giacca", "Zoom in": "Avvicina", "Zoom out": "Allontana",
@@ -98,6 +99,7 @@ const EN = Object.fromEntries(Object.entries(IT).map(([en, it]) => [it, en]));
 let locale = localStorage.getItem("vitalini_language") === "it" ? "it" : "en";
 export function t(text) {
   const source = EN[text] || text;
+  if (STANDARD_NAMES.has(source)) return source;
   if (locale === "en") return source;
   if (IT[source]) return IT[source];
   const history = source.match(/^Showing design (\d+) of (\d+)\.$/);
