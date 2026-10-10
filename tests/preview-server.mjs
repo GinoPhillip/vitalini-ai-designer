@@ -39,7 +39,11 @@ const server = http.createServer(async (req, res) => {
       if (name === "procedural-workflow") {
         res.writeHead(200, { "content-type": "text/plain" }); return res.end("LOCAL FIXTURE: historical workflow reference, not current artwork.\n");
       }
-      if (!["production-layout-vp9655", "past-work-example", "past-work-cut-lines"].includes(name)) return json(res, { error: "Not found" }, 404);
+      if (name === "ai-agent-instructions-v2") {
+        res.writeHead(200, { "content-type": "text/markdown" }); return res.end("# LOCAL FIXTURE instructions\nSee examples/01_hidden_zones_no_stretch.png. Process only, not design inspiration.\n");
+      }
+      const examples = ["01_hidden_zones_no_stretch", "02_vector_quality", "03_sky_and_edges", "04_exact_cut_lines", "05_seam_artifact", "06_target_result"];
+      if (!["production-layout-vp9655", "past-work-example", "past-work-cut-lines", "contrast-trim", "zipper-trim", ...examples.map((stem) => `quality-${stem}`)].includes(name)) return json(res, { error: "Not found" }, 404);
       res.writeHead(200, { "content-type": "image/png" }); return res.end(await readFile(resolve(root, "assets/models/VP9655-base.png")));
     }
     if (path === "/api/admin/users") return json(res, { users: [{ ...user, design_count: designs.length, request_count: 1 }] });

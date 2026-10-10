@@ -1,4 +1,4 @@
-import { buildRequestPackage, usedRequestLogos } from "./request-package.js?v=20261009-7";
+import { buildRequestPackage, usedRequestLogos } from "./request-package.js?v=20261010-1";
 const API_BASE = (window.VITALINI_API_BASE || "").replace(/\/$/, "");
 const ADMIN_SESSION_KEY = "vitalini_admin_session_v1";
 let adminToken = sessionStorage.getItem(ADMIN_SESSION_KEY) || "";

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createZip, crc32 } from "../public/zip.js";
-import { buildRequestPackage, VECTOR_BRIEF, requestLogoIds, usedRequestLogos } from "../public/request-package.js";
+import { buildRequestPackage, VECTOR_BRIEF, QUALITY_EXAMPLES, requestLogoIds, usedRequestLogos } from "../public/request-package.js";
 const id = "77777777-7777-4777-8777-777777777777", designId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const logoId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", unrelated = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const library = [{ id: logoId, name: "../Club logo.png" }, { id: unrelated, name: "Unrelated.png" }];
@@ -16,7 +16,8 @@ function unzip(blobBytes) {
   return JSON.parse(execFileSync("python3", ["-c", "import sys,io,zipfile,json,base64;z=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()));assert z.testzip() is None;print(json.dumps({n:base64.b64encode(z.read(n)).decode() for n in z.namelist()}))"], { input: blobBytes, maxBuffer: 4 * 1024 * 1024 }).toString());
 }
 const text = (entries, path) => Buffer.from(entries[path], "base64").toString();
-const fixtureLoad = async (path) => new Blob([path], { type: path.endsWith("procedural-workflow") ? "text/plain; charset=utf-8" : path.endsWith("preview") ? "image/jpeg" : "image/png" });
+const fixtureType = (path) => path.endsWith("ai-agent-instructions-v2") ? "text/markdown; charset=utf-8" : path.endsWith("procedural-workflow") ? "text/plain; charset=utf-8" : path.endsWith("preview") ? "image/jpeg" : "image/png";
+const fixtureLoad = async (path) => new Blob([path], { type: fixtureType(path) });
 
 test("ZIP store files open independently with binary content, UTF-8 names, and CRC checks", async () => {
   assert.equal(crc32(new TextEncoder().encode("123456789")), 0xcbf43926);
@@ -45,7 +46,7 @@ test("request package includes snapshots, only used logos, notes, model, source 
   assert.equal(manifest.placements[0].file, "logos/01_Club-logo.png");
   assert.ok(text(entries, manifest.files.submittedWithLogos).includes(`/requests/${id}/preview`));
   assert.ok(text(entries, manifest.files.originalWithoutLogoOverlays).includes(`/designs/${designId}/image`));
-  assert.equal(calls.length, 8); assert.equal(calls.some((path) => path.includes(unrelated)), false);
+  assert.equal(calls.length, 17); assert.equal(calls.some((path) => path.includes(unrelated)), false);
   assert.equal(manifest.schemaVersion, 2);
   assert.equal(manifest.productionPreparation.matchesCurrentModel, true);
   assert.equal(manifest.files.productionLayout, "design/04_PRODUCTION_LAYOUT.png");
@@ -53,6 +54,14 @@ test("request package includes snapshots, only used logos, notes, model, source 
   assert.match(text(entries, "references/00_REFERENCE_SCOPE.txt"), /DO NOT copy/);
   assert.match(text(entries, "04_PRODUCTION_READINESS_CHECKLIST.txt"), /NOT PROVIDED/);
   assert.match(text(entries, manifest.files.pastWorkCutLineExample), /past-work-cut-lines/);
+  assert.equal(manifest.files.aiAgentInstructions, "04_AI_AGENT_INSTRUCTIONS.md");
+  assert.equal(text(entries, manifest.files.aiAgentInstructions), "/api/admin/handoff-assets/ai-agent-instructions-v2");
+  assert.equal(manifest.files.contrastTrimReference, "trims/CONTRAST.png");
+  assert.equal(manifest.files.zipperTrimReference, "trims/ZIPPER.png");
+  assert.match(text(entries, manifest.files.contrastTrimReference), /contrast-trim/);
+  assert.match(text(entries, manifest.files.zipperTrimReference), /zipper-trim/);
+  assert.deepEqual(manifest.files.qualityExamples, QUALITY_EXAMPLES.map((stem) => `examples/${stem}.png`));
+  assert.match(text(entries, "references/00_REFERENCE_SCOPE.txt"), /QUALITY and PROCESS ONLY/);
   assert.equal(Object.values(entries).map((value) => Buffer.from(value, "base64").toString()).join("\n").includes("private@example.test"), false);
   assert.equal(JSON.stringify(r), before);
 });
@@ -75,17 +84,26 @@ test("legacy/no-logo requests work and missing assets fail without a misleading 
 test("other-model production layouts are reference-only and all reference bytes are preserved", async () => {
   const r = request(); r.design.modelId = "VP9109";
   const exact = new Uint8Array([0, 255, 80, 13, 10, 239, 187, 191]);
-  const load = async (path) => path.includes("handoff-assets") ? new Blob([exact], { type: path.endsWith("procedural-workflow") ? "text/plain" : "image/png" }) : fixtureLoad(path);
+  const load = async (path) => path.includes("handoff-assets") ? new Blob([exact], { type: fixtureType(path) }) : fixtureLoad(path);
   const bundle = await buildRequestPackage(r, library, load, fixtureLoad);
   const entries = unzip(Buffer.from(await bundle.blob.arrayBuffer()));
   const manifest = JSON.parse(text(entries, "02_MODEL_AND_PLACEMENT.json"));
   assert.equal(manifest.files.productionLayout, null);
   assert.equal(manifest.productionPreparation.matchesCurrentModel, false);
   assert.match(manifest.productionPreparation.layoutRole, /OTHER MODEL/);
-  for (const name of [manifest.files.suppliedLayoutReference, manifest.files.historicalWorkflow, manifest.files.pastWorkExample, manifest.files.pastWorkCutLineExample]) {
+  for (const name of [manifest.files.suppliedLayoutReference, manifest.files.historicalWorkflow, manifest.files.pastWorkExample, manifest.files.pastWorkCutLineExample,
+    manifest.files.aiAgentInstructions, manifest.files.contrastTrimReference, manifest.files.zipperTrimReference, ...manifest.files.qualityExamples]) {
     assert.deepEqual(new Uint8Array(Buffer.from(entries[name], "base64")), exact);
   }
   assert.equal(entries["design/04_PRODUCTION_LAYOUT.png"], undefined);
   await assert.rejects(buildRequestPackage(r, library, async (path) => path.includes("handoff-assets") ? new Blob([], { type: "image/png" }) : fixtureLoad(path), fixtureLoad), /reference is missing/);
   await assert.rejects(buildRequestPackage(r, library, async (path) => path.endsWith("procedural-workflow") ? new Blob(["<html>Login</html>"], { type: "text/html" }) : fixtureLoad(path), fixtureLoad), /workflow is missing/);
+});
+
+test("every new trim, example and updated instruction is required; wrong MIME fails export", async () => {
+  const assets = ["contrast-trim", "zipper-trim", "ai-agent-instructions-v2", ...QUALITY_EXAMPLES.map((stem) => `quality-${stem}`)];
+  for (const id of assets) {
+    await assert.rejects(buildRequestPackage(request(), library, async (path) => path.endsWith(`/${id}`) ? new Blob([]) : fixtureLoad(path), fixtureLoad), /missing or unsupported/);
+    await assert.rejects(buildRequestPackage(request(), library, async (path) => path.endsWith(`/${id}`) ? new Blob(["<html>error</html>"], { type: "text/html" }) : fixtureLoad(path), fixtureLoad), /missing or unsupported/);
+  }
 });
