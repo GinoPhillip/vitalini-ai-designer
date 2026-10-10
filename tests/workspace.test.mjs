@@ -46,16 +46,24 @@ test("handoff references require admin authentication and only serve fixed priva
   const req = (token, name = "production-layout-vp9655") => new Request(`https://studio.test/api/admin/handoff-assets/${name}`, { headers: { authorization: `Bearer ${token}` } });
   for (const token of ["client", "other", "unknown", ""]) assert.equal((await worker.fetch(req(token), env)).status, 401);
   assert.equal(keys.length, 0);
-  for (const name of ["production-layout-vp9655", "past-work-example", "past-work-cut-lines", "procedural-workflow"]) {
+  const additional = {
+    "contrast-trim": "CONTRAST.png", "zipper-trim": "ZIPPER.png", "ai-agent-instructions-v2": "04_AI_AGENT_INSTRUCTIONS.md",
+    "quality-01_hidden_zones_no_stretch": "examples/01_hidden_zones_no_stretch.png",
+    "quality-02_vector_quality": "examples/02_vector_quality.png", "quality-03_sky_and_edges": "examples/03_sky_and_edges.png",
+    "quality-04_exact_cut_lines": "examples/04_exact_cut_lines.png", "quality-05_seam_artifact": "examples/05_seam_artifact.png",
+    "quality-06_target_result": "examples/06_target_result.png"
+  };
+  for (const name of ["production-layout-vp9655", "past-work-example", "past-work-cut-lines", "procedural-workflow", ...Object.keys(additional)]) {
+    assert.equal((await worker.fetch(req("client", name), env)).status, 401);
     const response = await worker.fetch(req("admin", name), env);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("cache-control"), "private, no-store");
     assert.equal(await response.text(), "private-reference");
   }
-  assert.deepEqual(keys, ["admin-handoff/v1/vp9655-production-layout.png", "admin-handoff/v1/past-work-example.png", "admin-handoff/v1/past-work-cut-lines.png", "admin-handoff/v1/opus-procedural-workflow.txt"]);
+  assert.deepEqual(keys, ["admin-handoff/v1/vp9655-production-layout.png", "admin-handoff/v1/past-work-example.png", "admin-handoff/v1/past-work-cut-lines.png", "admin-handoff/v1/opus-procedural-workflow.txt", ...Object.values(additional).map((file) => `admin-handoff/v2/${file}`)]);
   assert.equal((await worker.fetch(req("admin", "__proto__"), env)).status, 404);
   assert.equal((await worker.fetch(req("admin", "some-other-client.png"), env)).status, 404);
-  assert.equal(keys.length, 4);
+  assert.equal(keys.length, 13);
   env.DESIGNS.get = async () => null;
   assert.equal((await worker.fetch(req("admin"), env)).status, 404);
   sqlite.close();

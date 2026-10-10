@@ -705,7 +705,16 @@ async function getAdminHandoffAsset(request, env) {
     "production-layout-vp9655": ["admin-handoff/v1/vp9655-production-layout.png", "VP9655-production-layout.png"],
     "past-work-example": ["admin-handoff/v1/past-work-example.png", "PAST_WORK-example.png"],
     "past-work-cut-lines": ["admin-handoff/v1/past-work-cut-lines.png", "PAST_WORK-cut-lines.png"],
-    "procedural-workflow": ["admin-handoff/v1/opus-procedural-workflow.txt", "operator-supplied-workflow.txt"]
+    "procedural-workflow": ["admin-handoff/v1/opus-procedural-workflow.txt", "operator-supplied-workflow.txt"],
+    "contrast-trim": ["admin-handoff/v2/CONTRAST.png", "CONTRAST.png"],
+    "zipper-trim": ["admin-handoff/v2/ZIPPER.png", "ZIPPER.png"],
+    "ai-agent-instructions-v2": ["admin-handoff/v2/04_AI_AGENT_INSTRUCTIONS.md", "04_AI_AGENT_INSTRUCTIONS.md"],
+    "quality-01_hidden_zones_no_stretch": ["admin-handoff/v2/examples/01_hidden_zones_no_stretch.png", "01_hidden_zones_no_stretch.png"],
+    "quality-02_vector_quality": ["admin-handoff/v2/examples/02_vector_quality.png", "02_vector_quality.png"],
+    "quality-03_sky_and_edges": ["admin-handoff/v2/examples/03_sky_and_edges.png", "03_sky_and_edges.png"],
+    "quality-04_exact_cut_lines": ["admin-handoff/v2/examples/04_exact_cut_lines.png", "04_exact_cut_lines.png"],
+    "quality-05_seam_artifact": ["admin-handoff/v2/examples/05_seam_artifact.png", "05_seam_artifact.png"],
+    "quality-06_target_result": ["admin-handoff/v2/examples/06_target_result.png", "06_target_result.png"]
   };
   const id = pathPart(request, 4);
   const asset = Object.hasOwn(assets, id) ? assets[id] : null;

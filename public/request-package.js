@@ -4,7 +4,9 @@ export const VECTOR_BRIEF = `VITALINI — VECTOR REBUILD AND PRODUCTION-LAYOUT P
 
 You are assisting Vitalini's apparel graphics team. A customer used AI-generated bitmap artwork and a logo-placement editor to create a DRAFT jacket design. Rebuild the supplied concept as clean, editable vector artwork, preserving its character as faithfully as practical.
 
-Start with 01_CLIENT_NOTES.txt, 02_MODEL_AND_PLACEMENT.json and 04_PRODUCTION_READINESS_CHECKLIST.txt. Compare the submitted composite with the original bitmap and the blank UV guide in design/. Use only the supplied logos in logos/; the JSON maps each file to its exact submitted placements.
+Start with 01_CLIENT_NOTES.txt, 02_MODEL_AND_PLACEMENT.json, the updated 04_AI_AGENT_INSTRUCTIONS.md and 04_PRODUCTION_READINESS_CHECKLIST.txt. The six images in examples/ sit next to the updated instructions at the exact relative paths they reference. They demonstrate quality failures and fixes, NOT a style to copy. The older workflow text in references/ is retained as historical background; use the updated instructions first. Compare the submitted composite with the original bitmap and the blank UV guide in design/. Use only the supplied client logos in logos/; the JSON maps each file to its exact submitted placements.
+
+trims/CONTRAST.png and trims/ZIPPER.png are operator-supplied trim reference maps, separate from the main generated artwork and red production layout. Preserve their source dimensions and pixels, including the Zipper map's gray background. Verify their piece/model compatibility before using them for production. They are not final colors for every client: this request's trimColors in the manifest specify the chosen Contrast and Zipper colors. Do not copy a reference logo into the client's design or paint trim colors into the main UV atlas.
 
 Two separate stages:
 1. Rebuild the preview UV atlas as editable vectors.
@@ -31,6 +33,9 @@ Operator-provided attribution: "This text is from Opus 5.5, which has been worki
 01_OPERATOR_SUPPLIED_WORKFLOW.txt preserves the supplied text verbatim. It documents a past VP9655 job. Apply its general two-stage workflow and quality-control lessons, but adapt methods to the current artwork and verified garment inputs.
 02_PAST_WORK_MAPPING_EXAMPLE.png is an example of past work only. DO NOT copy or be influenced by its colors, mountains, words, logos or composition.
 03_PAST_WORK_CUT_LINE_EXAMPLE.png demonstrates an outline proof from that same past process. Its printed mean/worst deviations are historical measurements, NOT measurements of this request or guaranteed tolerances.
+
+The package root also contains the updated 04_AI_AGENT_INSTRUCTIONS.md, preserved verbatim, and its six examples/ sheets with their original filenames. Use the updated document before the older workflow. All eight example images (the six sheets plus two older examples) explain QUALITY and PROCESS ONLY. DO NOT copy their artwork, palette, mountains, lettering or logos into the current job, even where a sheet says "target" or "approved". Historical numerical checks and hidden-zone geometry must be measured/verified again for this job.
+trims/CONTRAST.png and trims/ZIPPER.png are distinct operator-supplied reference maps. The first has alpha; the second has a gray background, not an alpha coverage mask. Do not apply the red production layout's alpha-only segmentation rule to the opaque Zipper reference. Use the client's recorded trimColors for actual selected colors, verify garment compatibility, and flag uncertain trim-piece assignments.
 
 Current client notes, original artwork, submitted composite, model ID and used client logos are the design authority. Historical notes do not override them. Do not copy blue-specific segmentation thresholds, fixed palette counts, centimeter conversions, inferred hidden zones or mapping choices without checking this job.
 The supplied VP9655 production layout is 2048 x 2048 pixels with alpha; physical size, DPI, garment size, seam pairs and printer calibration have NOT been provided. Pixel dimensions do not establish manufacturing scale. For other jacket models it is only an other-model reference, not a valid production template.
@@ -61,6 +66,11 @@ const MODEL = {
   VP9655: { collection: "Jackets", textureMaterial: "Giacca1_FRONT_2563", sketchfabUid: "81627c97044d48c48acf09dc4dd81aae" },
   VP9109: { collection: "Jackets", textureMaterial: "Copri_Zip_FRONT_2569", sketchfabUid: "58f6159cf20a482eb3c1cbdc319dbce4" }
 };
+
+export const QUALITY_EXAMPLES = Object.freeze([
+  "01_hidden_zones_no_stretch", "02_vector_quality", "03_sky_and_edges",
+  "04_exact_cut_lines", "05_seam_artifact", "06_target_result"
+]);
 
 export function requestLogoIds(request) {
   const placement = request.placement || {};
@@ -109,6 +119,13 @@ export async function buildRequestPackage(request, library, loadPrivate, loadTem
   const layout = await addReferenceImage(layoutMatches ? "design/04_PRODUCTION_LAYOUT" : "references/VP9655_LAYOUT_NOT_FOR_THIS_MODEL", "production-layout-vp9655");
   const example = await addReferenceImage("references/02_PAST_WORK_MAPPING_EXAMPLE", "past-work-example");
   const cutLineExample = await addReferenceImage("references/03_PAST_WORK_CUT_LINE_EXAMPLE", "past-work-cut-lines");
+  const contrast = await addReferenceImage("trims/CONTRAST", "contrast-trim");
+  const zipper = await addReferenceImage("trims/ZIPPER", "zipper-trim");
+  const qualityExamples = [];
+  for (const stem of QUALITY_EXAMPLES) qualityExamples.push(await addReferenceImage(`examples/${stem}`, `quality-${stem}`));
+  const instructions = await loadPrivate("/api/admin/handoff-assets/ai-agent-instructions-v2");
+  if (!instructions.size || !["text/markdown", "text/plain"].includes(instructions.type.split(";")[0].toLowerCase())) throw new Error("The updated AI instructions are missing or unsupported. The package was not created.");
+  files.push({ name: "04_AI_AGENT_INSTRUCTIONS.md", data: instructions });
   const workflow = await loadPrivate("/api/admin/handoff-assets/procedural-workflow");
   if (!workflow.size || workflow.type.split(";")[0].toLowerCase() !== "text/plain") throw new Error("The supplied workflow is missing or unsupported. The package was not created.");
   files.push({ name: "references/01_OPERATOR_SUPPLIED_WORKFLOW.txt", data: workflow },
@@ -126,7 +143,9 @@ export async function buildRequestPackage(request, library, loadPrivate, loadTem
   const metadata = { schemaVersion: 2, requestId: request.id, modelId: request.design.modelId, ...MODEL[request.design.modelId],
     files: { submittedWithLogos: composite, originalWithoutLogoOverlays: original, blankUVGuide: guide,
       productionLayout: layoutMatches ? layout : null, suppliedLayoutReference: layout, historicalWorkflow: "references/01_OPERATOR_SUPPLIED_WORKFLOW.txt",
-      pastWorkExample: example, pastWorkCutLineExample: cutLineExample },
+      pastWorkExample: example, pastWorkCutLineExample: cutLineExample, aiAgentInstructions: "04_AI_AGENT_INSTRUCTIONS.md", qualityExamples,
+      contrastTrimReference: contrast, zipperTrimReference: zipper },
+    trimReferenceNote: "Operator-supplied reference maps; verify compatibility with this model. Use trimColors below for the client's selected colors. Preserve original pixels and the opaque gray Zipper background; these are separate from the main UV artwork and production layout.",
     productionPreparation: { suppliedLayoutModelId: "VP9655", matchesCurrentModel: layoutMatches, suppliedLayoutPixels: [2048, 2048],
       layoutRole: layoutMatches ? "production geometry, subject to Vitalini pattern verification" : "OTHER MODEL REFERENCE ONLY — obtain the correct production layout before mapping",
       physicalScale: "not provided", dpi: "not provided", garmentSizeAndRevision: "not provided", seamPairs: "not provided", bleedAndSafetyMargins: "not provided", printerICC: "not provided", approval: "Vitalini review required; this package does not certify print readiness" },
